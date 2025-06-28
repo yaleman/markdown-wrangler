@@ -9,7 +9,6 @@ pub struct Cli {
     pub debug: bool,
 
     #[arg(
-        long,
         help = "Target directory to watch for markdown files",
         default_value = ".",
         value_name = "DIR"
