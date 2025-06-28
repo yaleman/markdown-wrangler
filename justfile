@@ -11,3 +11,6 @@ test:
   cargo test
 
 check: lint lint-js test
+
+docker-build:
+  docker build -t ghcr.io/yaleman/markdown-wrangler:latest .
