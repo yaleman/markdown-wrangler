@@ -1,4 +1,4 @@
-function confirmDelete(filename, encodedPath) {
+function confirmDelete(filename) {
     const confirmed = confirm(`Are you sure you want to delete "${filename}"?\n\nThis action cannot be undone.`);
     
     if (confirmed) {
