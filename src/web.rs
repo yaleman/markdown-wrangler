@@ -34,6 +34,11 @@ struct EditForm {
     content: String,
 }
 
+#[derive(Deserialize)]
+struct DeleteForm {
+    path: String,
+}
+
 fn list_directory(base_dir: &Path, relative_path: &str) -> Result<Vec<DirectoryEntry>, String> {
     let full_path = if relative_path.is_empty() {
         base_dir.to_path_buf()
@@ -164,6 +169,7 @@ fn generate_editor_html(file_path: &str, content: &str) -> String {
         <div class="buttons">
             <button type="submit">💾 Save File</button>
             <button type="button" class="cancel" onclick="window.location.href='/'">❌ Cancel</button>
+            <button type="button" class="delete-btn" onclick="confirmDelete('{escaped_path}', '{encoded_path}')">🗑️ Delete File</button>
         </div>
         
         <div class="editor-container">
@@ -179,13 +185,19 @@ fn generate_editor_html(file_path: &str, content: &str) -> String {
             </div>
         </div>
     </form>
+    
+    <form id="deleteForm" method="post" action="/delete" style="display: none;">
+        <input type="hidden" name="path" value="{escaped_path}" />
+    </form>
 
     <script src="/static/editor.js"></script>
+    <script src="/static/delete.js"></script>
 </body>
 </html>"#,
         file_path = file_path,
         escaped_path = escaped_path,
-        escaped_content = escaped_content
+        escaped_content = escaped_content,
+        encoded_path = urlencoding::encode(file_path)
     )
 }
 
@@ -217,7 +229,14 @@ fn generate_image_preview_html(file_path: &str) -> String {
     
     <div class="buttons">
         <button onclick="window.location.href='/'">📁 Back to Files</button>
+        <button class="delete-btn" onclick="confirmDelete('{escaped_path}', '{encoded_path}')">🗑️ Delete File</button>
     </div>
+    
+    <form id="deleteForm" method="post" action="/delete" style="display: none;">
+        <input type="hidden" name="path" value="{escaped_path}" />
+    </form>
+    
+    <script src="/static/delete.js"></script>
 </body>
 </html>"#,
         file_path = file_path,
@@ -545,6 +564,51 @@ async fn serve_image(
     }
 }
 
+async fn delete_file(
+    State(state): State<AppState>,
+    Form(form): Form<DeleteForm>,
+) -> Result<Html<String>, (StatusCode, String)> {
+    // Validate the file path
+    match validate_file_path(&state.target_dir, &form.path) {
+        Ok(full_path) => {
+            match fs::remove_file(&full_path) {
+                Ok(()) => {
+                    info!("File deleted successfully: {}", form.path);
+                    let success_html = format!(
+                        r#"<!DOCTYPE html>
+<html>
+<head>
+    <title>File Deleted - Markdown Wrangler</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="center">
+    <h1 class="success">🗑️ File Deleted Successfully!</h1>
+    <p>The file <strong>{}</strong> has been deleted.</p>
+    <div class="buttons">
+        <button class="save-buttons" onclick="window.location.href='/'">📁 Back to Files</button>
+    </div>
+</body>
+</html>"#,
+                        html_escape::encode_text(&form.path)
+                    );
+                    Ok(Html(success_html))
+                }
+                Err(err) => {
+                    warn!("File deletion error: {}", err);
+                    Err((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Error deleting file: {}", err),
+                    ))
+                }
+            }
+        }
+        Err(err) => {
+            warn!("File validation error during deletion: {}", err);
+            Err((StatusCode::BAD_REQUEST, format!("Error: {}", err)))
+        }
+    }
+}
+
 async fn handler_404() -> (StatusCode, &'static str) {
     (StatusCode::NOT_FOUND, "not found")
 }
@@ -554,6 +618,7 @@ fn create_router(state: AppState) -> Router {
         .route("/", get(index))
         .route("/edit", get(edit_file))
         .route("/save", post(save_file))
+        .route("/delete", post(delete_file))
         .route("/preview", get(preview_image))
         .route("/image", get(serve_image))
         .nest_service("/static", ServeDir::new("static"))

@@ -109,6 +109,21 @@ button.save-buttons {
     margin: 10px;
 }
 
+/* Delete Button Styles */
+.delete-btn {
+    background: #dc3545 !important;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    margin-right: 10px;
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+.delete-btn:hover {
+    background: #c82333 !important;
+}
+
 /* Image Preview Styles */
 .image-preview-container {
     display: flex;
