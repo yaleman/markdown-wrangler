@@ -242,7 +242,7 @@ function initializeEditorStorage() {
 }
 
 // Clean up when page unloads
-window.addEventListener('beforeunload', () => {
+globalThis.addEventListener('beforeunload', () => {
     if (editorStorage) {
         editorStorage.stopPeriodicCheck();
     }

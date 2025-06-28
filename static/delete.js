@@ -1,4 +1,4 @@
-function confirmDelete(filename) {
+function confirmDelete(filename) { // Used by HTML templates
     const confirmed = confirm(`Are you sure you want to delete "${filename}"?\n\nThis action cannot be undone.`);
     
     if (confirmed) {
