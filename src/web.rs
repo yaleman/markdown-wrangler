@@ -2,15 +2,16 @@ use axum::{
     Router,
     extract::{Form, Query, State},
     http::StatusCode,
-    response::Html,
+    response::{Html, Json},
     routing::{get, post},
 };
 use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
+    time::SystemTime,
 };
 use tokio::net::TcpListener;
 use tower_http::services::ServeDir;
@@ -37,6 +38,18 @@ struct EditForm {
 #[derive(Deserialize)]
 struct DeleteForm {
     path: String,
+}
+
+#[derive(Serialize)]
+struct FileInfo {
+    modified_time: String,
+    size: u64,
+}
+
+#[derive(Serialize)]
+struct FileContent {
+    content: String,
+    modified_time: String,
 }
 
 fn list_directory(base_dir: &Path, relative_path: &str) -> Result<Vec<DirectoryEntry>, String> {
@@ -209,6 +222,17 @@ fn format_file_size(size_bytes: u64) -> String {
     }
 }
 
+fn get_file_modification_time(file_path: &Path) -> Result<String, String> {
+    fs::metadata(file_path)
+        .and_then(|metadata| metadata.modified())
+        .map(|time| {
+            time.duration_since(SystemTime::UNIX_EPOCH)
+                .map(|duration| duration.as_secs().to_string())
+                .unwrap_or_else(|_| "0".to_string())
+        })
+        .map_err(|e| format!("Failed to get file modification time: {}", e))
+}
+
 fn generate_editor_html(file_path: &str, content: &str) -> String {
     let escaped_content = html_escape::encode_text(content);
     let escaped_path = html_escape::encode_text(file_path);
@@ -253,6 +277,7 @@ fn generate_editor_html(file_path: &str, content: &str) -> String {
     </form>
 
     <script src="/static/editor.js"></script>
+    <script src="/static/editor-storage.js"></script>
     <script src="/static/delete.js"></script>
 </body>
 </html>"#,
@@ -836,6 +861,84 @@ async fn serve_file(
     }
 }
 
+async fn get_file_info(
+    Query(params): Query<HashMap<String, String>>,
+    State(state): State<AppState>,
+) -> Result<Json<FileInfo>, (StatusCode, String)> {
+    let file_path = params.get("path").ok_or((
+        StatusCode::BAD_REQUEST,
+        "Missing path parameter".to_string(),
+    ))?;
+
+    match validate_file_path(&state.target_dir, file_path) {
+        Ok(full_path) => {
+            match (get_file_modification_time(&full_path), get_file_size(&full_path)) {
+                (Ok(modified_time), Ok(size)) => {
+                    let file_info = FileInfo {
+                        modified_time,
+                        size,
+                    };
+                    Ok(Json(file_info))
+                }
+                (Err(e), _) | (_, Err(e)) => {
+                    warn!("Failed to get file info: {}", e);
+                    Err((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Error getting file info: {}", e),
+                    ))
+                }
+            }
+        }
+        Err(err) => {
+            warn!("File validation error: {}", err);
+            Err((StatusCode::BAD_REQUEST, format!("Error: {}", err)))
+        }
+    }
+}
+
+async fn get_file_content(
+    Query(params): Query<HashMap<String, String>>,
+    State(state): State<AppState>,
+) -> Result<Json<FileContent>, (StatusCode, String)> {
+    let file_path = params.get("path").ok_or((
+        StatusCode::BAD_REQUEST,
+        "Missing path parameter".to_string(),
+    ))?;
+
+    // Only allow markdown files for this endpoint
+    if !is_markdown_file(file_path) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Only markdown files are supported".to_string(),
+        ));
+    }
+
+    match validate_file_path(&state.target_dir, file_path) {
+        Ok(full_path) => {
+            match (read_file_content(&full_path), get_file_modification_time(&full_path)) {
+                (Ok(content), Ok(modified_time)) => {
+                    let file_content = FileContent {
+                        content,
+                        modified_time,
+                    };
+                    Ok(Json(file_content))
+                }
+                (Err(e), _) | (_, Err(e)) => {
+                    warn!("Failed to get file content: {}", e);
+                    Err((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Error getting file content: {}", e),
+                    ))
+                }
+            }
+        }
+        Err(err) => {
+            warn!("File validation error: {}", err);
+            Err((StatusCode::BAD_REQUEST, format!("Error: {}", err)))
+        }
+    }
+}
+
 async fn delete_file(
     State(state): State<AppState>,
     Form(form): Form<DeleteForm>,
@@ -895,6 +998,8 @@ fn create_router(state: AppState) -> Router {
         .route("/image", get(serve_image))
         .route("/file-preview", get(preview_file))
         .route("/file", get(serve_file))
+        .route("/file-info", get(get_file_info))
+        .route("/file-content", get(get_file_content))
         .nest_service("/static", ServeDir::new("static"))
         .fallback(handler_404)
         .with_state(state)

@@ -100,6 +100,33 @@ button:hover {
     background: #444;
 }
 
+/* Draft Status Styles */
+.draft-status {
+    padding: 8px 12px;
+    margin: 10px 0;
+    border-radius: 4px;
+    font-size: 14px;
+    transition: opacity 0.3s ease;
+}
+
+.draft-status.info {
+    background: #d1ecf1;
+    color: #0c5460;
+    border: 1px solid #bee5eb;
+}
+
+.draft-status.warning {
+    background: #fff3cd;
+    color: #856404;
+    border: 1px solid #ffeaa7;
+}
+
+.draft-status.error {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
 /* Success Page Styles */
 body.center {
     margin: 40px;
