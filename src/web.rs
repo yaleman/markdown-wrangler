@@ -121,6 +121,19 @@ fn is_markdown_file(path: &str) -> bool {
     path.to_lowercase().ends_with(".md") || path.to_lowercase().ends_with(".markdown")
 }
 
+fn is_image_file(path: &str) -> bool {
+    let lower_path = path.to_lowercase();
+    lower_path.ends_with(".jpg") 
+        || lower_path.ends_with(".jpeg") 
+        || lower_path.ends_with(".png") 
+        || lower_path.ends_with(".gif") 
+        || lower_path.ends_with(".webp") 
+        || lower_path.ends_with(".svg") 
+        || lower_path.ends_with(".bmp") 
+        || lower_path.ends_with(".tiff") 
+        || lower_path.ends_with(".tif")
+}
+
 fn read_file_content(file_path: &Path) -> Result<String, String> {
     fs::read_to_string(file_path).map_err(|e| format!("Failed to read file: {}", e))
 }
@@ -173,6 +186,43 @@ fn generate_editor_html(file_path: &str, content: &str) -> String {
         file_path = file_path,
         escaped_path = escaped_path,
         escaped_content = escaped_content
+    )
+}
+
+fn generate_image_preview_html(file_path: &str) -> String {
+    let escaped_path = html_escape::encode_text(file_path);
+    
+    format!(
+        r#"<!DOCTYPE html>
+<html>
+<head>
+    <title>Markdown Wrangler - Image Preview: {file_path}</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <h1>🖼️ Image Preview</h1>
+    <div class="breadcrumb">
+        <a href="/">← Back to file browser</a> | 🖼️ {escaped_path}
+    </div>
+    
+    <div class="image-preview-container">
+        <div class="image-wrapper">
+            <img src="/image?path={encoded_path}" alt="{escaped_path}" class="preview-image" />
+        </div>
+        <div class="image-info">
+            <h3>📄 File Information</h3>
+            <p><strong>File:</strong> {escaped_path}</p>
+        </div>
+    </div>
+    
+    <div class="buttons">
+        <button onclick="window.location.href='/'">📁 Back to Files</button>
+    </div>
+</body>
+</html>"#,
+        file_path = file_path,
+        escaped_path = escaped_path,
+        encoded_path = urlencoding::encode(file_path)
     )
 }
 
@@ -249,6 +299,12 @@ fn generate_directory_html(entries: &[DirectoryEntry], current_path: &str) -> St
             html.push_str(&format!(
                 "<div class=\"entry\"><a href=\"/edit?path={}\"><span class=\"icon\">{}</span><span class=\"{}\">{}</span></a></div>",
                 encoded_path, icon, class, entry.name
+            ));
+        } else if is_image_file(&entry.name) {
+            let encoded_path = urlencoding::encode(&entry.path);
+            html.push_str(&format!(
+                "<div class=\"entry\"><a href=\"/preview?path={}\"><span class=\"icon\">🖼️</span><span class=\"{}\">{}</span></a></div>",
+                encoded_path, class, entry.name
             ));
         } else {
             html.push_str(&format!(
@@ -408,6 +464,87 @@ async fn save_file(
     }
 }
 
+async fn preview_image(
+    Query(params): Query<HashMap<String, String>>,
+    State(state): State<AppState>,
+) -> Result<Html<String>, (StatusCode, String)> {
+    let file_path = params.get("path").ok_or((
+        StatusCode::BAD_REQUEST,
+        "Missing path parameter".to_string(),
+    ))?;
+
+    if !is_image_file(file_path) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "File is not an image file".to_string(),
+        ));
+    }
+
+    match validate_file_path(&state.target_dir, file_path) {
+        Ok(_) => {
+            let html = generate_image_preview_html(file_path);
+            Ok(Html(html))
+        }
+        Err(err) => {
+            warn!("File validation error: {}", err);
+            Err((StatusCode::BAD_REQUEST, format!("Error: {}", err)))
+        }
+    }
+}
+
+async fn serve_image(
+    Query(params): Query<HashMap<String, String>>,
+    State(state): State<AppState>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let file_path = params.get("path").ok_or((
+        StatusCode::BAD_REQUEST,
+        "Missing path parameter".to_string(),
+    ))?;
+
+    if !is_image_file(file_path) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "File is not an image file".to_string(),
+        ));
+    }
+
+    match validate_file_path(&state.target_dir, file_path) {
+        Ok(full_path) => {
+            match fs::read(&full_path) {
+                Ok(file_contents) => {
+                    // Determine content type based on file extension
+                    let content_type = match full_path.extension().and_then(|s| s.to_str()) {
+                        Some("jpg") | Some("jpeg") => "image/jpeg",
+                        Some("png") => "image/png",
+                        Some("gif") => "image/gif",
+                        Some("webp") => "image/webp",
+                        Some("svg") => "image/svg+xml",
+                        Some("bmp") => "image/bmp",
+                        Some("tiff") | Some("tif") => "image/tiff",
+                        _ => "application/octet-stream",
+                    };
+
+                    Ok(axum::response::Response::builder()
+                        .header("Content-Type", content_type)
+                        .body(axum::body::Body::from(file_contents))
+                        .unwrap())
+                }
+                Err(err) => {
+                    warn!("Image read error: {}", err);
+                    Err((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Error reading image: {}", err),
+                    ))
+                }
+            }
+        }
+        Err(err) => {
+            warn!("Image validation error: {}", err);
+            Err((StatusCode::BAD_REQUEST, format!("Error: {}", err)))
+        }
+    }
+}
+
 async fn handler_404() -> (StatusCode, &'static str) {
     (StatusCode::NOT_FOUND, "not found")
 }
@@ -417,6 +554,8 @@ fn create_router(state: AppState) -> Router {
         .route("/", get(index))
         .route("/edit", get(edit_file))
         .route("/save", post(save_file))
+        .route("/preview", get(preview_image))
+        .route("/image", get(serve_image))
         .nest_service("/static", ServeDir::new("static"))
         .fallback(handler_404)
         .with_state(state)
