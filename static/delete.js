@@ -1,6 +1,8 @@
-function confirmDelete(filename) { // Used by HTML templates
-    const confirmed = confirm(`Are you sure you want to delete "${filename}"?\n\nThis action cannot be undone.`);
-    
+function confirmDelete(filename) {
+    const confirmed = confirm(
+        `Are you sure you want to delete "${filename}"?\n\nThis action cannot be undone.`
+    );
+
     if (confirmed) {
         // Submit the hidden delete form
         const deleteForm = document.getElementById('deleteForm');

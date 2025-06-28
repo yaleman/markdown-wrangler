@@ -89,3 +89,8 @@ just check            # Run lint and test
 ## Web Development Best Practices
 
 - Don't use inline javascript or css, use static files and serve them from a /static/ directory
+
+## JavaScript and Linting
+
+- eslint is what I use for javascript linting
+- prettier is what I use for javascript formatting

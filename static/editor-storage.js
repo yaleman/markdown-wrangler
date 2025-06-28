@@ -6,7 +6,7 @@ class EditorStorage {
         this.originalContentKey = `${this.storageKey}-original`;
         this.checkInterval = 5000; // Check every 5 seconds
         this.intervalId = null;
-        
+
         this.initializeStorage();
         this.startPeriodicCheck();
     }
@@ -17,7 +17,7 @@ class EditorStorage {
         if (textarea) {
             const originalContent = textarea.value;
             localStorage.setItem(this.originalContentKey, originalContent);
-            
+
             // Get current server timestamp
             this.updateServerTimestamp().then(() => {
                 // Load any existing draft from local storage
@@ -45,15 +45,15 @@ class EditorStorage {
         if (textarea) {
             const content = textarea.value;
             const timestamp = new Date().toISOString();
-            
+
             const draft = {
                 content: content,
                 saved_at: timestamp,
-                file_path: this.filePath
+                file_path: this.filePath,
             };
-            
+
             localStorage.setItem(this.storageKey, JSON.stringify(draft));
-            
+
             // Update UI to show draft saved
             this.showDraftStatus('Draft saved locally');
         }
@@ -66,13 +66,17 @@ class EditorStorage {
                 const draft = JSON.parse(draftJson);
                 const textarea = document.querySelector('textarea[name="content"]');
                 const originalContent = localStorage.getItem(this.originalContentKey);
-                
+
                 // Only load draft if it's different from original
                 if (textarea && draft.content !== originalContent) {
                     const timeDiff = new Date() - new Date(draft.saved_at);
                     const hours = Math.floor(timeDiff / (1000 * 60 * 60));
-                    
-                    if (confirm(`Found unsaved draft from ${hours > 0 ? hours + ' hours' : 'less than an hour'} ago. Load draft?`)) {
+
+                    if (
+                        confirm(
+                            `Found unsaved draft from ${hours > 0 ? hours + ' hours' : 'less than an hour'} ago. Load draft?`
+                        )
+                    ) {
                         textarea.value = draft.content;
                         this.updatePreview();
                         this.showDraftStatus('Draft loaded from local storage');
@@ -88,8 +92,12 @@ class EditorStorage {
         try {
             const currentServerTimestamp = await this.updateServerTimestamp();
             const storedTimestamp = localStorage.getItem(this.timestampKey);
-            
-            if (currentServerTimestamp && storedTimestamp && currentServerTimestamp !== storedTimestamp) {
+
+            if (
+                currentServerTimestamp &&
+                storedTimestamp &&
+                currentServerTimestamp !== storedTimestamp
+            ) {
                 // File has been modified on disk
                 this.handleFileConflict(currentServerTimestamp);
             }
@@ -100,19 +108,24 @@ class EditorStorage {
 
     handleFileConflict(newTimestamp) {
         this.stopPeriodicCheck(); // Stop checking to avoid multiple prompts
-        
+
         const message = `The file has been modified on disk by another process.\n\nWhat would you like to do?`;
-        const choice = confirm(`${message}\n\nClick OK to reload the file (losing local changes)\nClick Cancel to keep editing (you can save to overwrite)`);
-        
+        const choice = confirm(
+            `${message}\n\nClick OK to reload the file (losing local changes)\nClick Cancel to keep editing (you can save to overwrite)`
+        );
+
         if (choice) {
             // Reload file from server
             this.reloadFromServer();
         } else {
             // Keep local version, update stored timestamp to prevent repeated prompts
             localStorage.setItem(this.timestampKey, newTimestamp);
-            this.showDraftStatus('Warning: File modified on disk - local changes will overwrite when saved', 'warning');
+            this.showDraftStatus(
+                'Warning: File modified on disk - local changes will overwrite when saved',
+                'warning'
+            );
         }
-        
+
         // Restart checking after handling conflict
         setTimeout(() => this.startPeriodicCheck(), 10000); // Wait 10 seconds before resuming
     }
@@ -126,11 +139,11 @@ class EditorStorage {
                 if (textarea) {
                     textarea.value = data.content;
                     this.updatePreview();
-                    
+
                     // Update stored content and clear draft
                     localStorage.setItem(this.originalContentKey, data.content);
                     localStorage.removeItem(this.storageKey);
-                    
+
                     this.showDraftStatus('File reloaded from disk');
                 }
             }
@@ -164,7 +177,7 @@ class EditorStorage {
     updatePreview() {
         // Trigger the existing preview update function if it exists
         if (typeof updatePreview === 'function') {
-            updatePreview();
+            updatePreview(); // eslint-disable-line no-undef
         }
     }
 
@@ -175,17 +188,17 @@ class EditorStorage {
             statusEl = document.createElement('div');
             statusEl.id = 'draft-status';
             statusEl.className = 'draft-status';
-            
+
             // Insert after breadcrumb
             const breadcrumb = document.querySelector('.breadcrumb');
             if (breadcrumb) {
                 breadcrumb.insertAdjacentElement('afterend', statusEl);
             }
         }
-        
+
         statusEl.textContent = message;
         statusEl.className = `draft-status ${type}`;
-        
+
         // Auto-hide after 3 seconds for info messages
         if (type === 'info') {
             setTimeout(() => {
@@ -207,7 +220,7 @@ function initializeEditorStorage() {
     if (pathInput) {
         const filePath = pathInput.value;
         editorStorage = new EditorStorage(filePath);
-        
+
         // Set up auto-save on text change
         const textarea = document.querySelector('textarea[name="content"]');
         if (textarea) {
@@ -219,7 +232,7 @@ function initializeEditorStorage() {
                 }, 1000); // Save draft 1 second after stopping typing
             });
         }
-        
+
         // Handle form submission
         const form = document.querySelector('form[action="/save"]');
         if (form) {
@@ -230,7 +243,7 @@ function initializeEditorStorage() {
                 }, 100);
             });
         }
-        
+
         // Handle delete form submission
         const deleteForm = document.getElementById('deleteForm');
         if (deleteForm) {
@@ -242,7 +255,7 @@ function initializeEditorStorage() {
 }
 
 // Clean up when page unloads
-globalThis.addEventListener('beforeunload', () => {
+window.addEventListener('beforeunload', () => {
     if (editorStorage) {
         editorStorage.stopPeriodicCheck();
     }

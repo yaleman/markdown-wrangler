@@ -5,7 +5,7 @@ lint:
   cargo clippy --all-targets
 
 lint-js:
-  deno lint static/*.js
+  npm run lint
 
 test:
   cargo test

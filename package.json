@@ -1,0 +1,14 @@
+{
+  "name": "markdown-wrangler",
+  "version": "1.0.0",
+  "private": true,
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "prettier": "^3.2.5"
+  },
+  "scripts": {
+    "lint": "eslint static/*.js",
+    "format": "prettier --write static/*.js",
+    "check": "eslint static/*.js && prettier --check static/*.js"
+  }
+}
