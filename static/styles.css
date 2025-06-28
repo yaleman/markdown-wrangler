@@ -1,0 +1,110 @@
+/* General Styles */
+body {
+    font-family: Arial, sans-serif;
+    margin: 20px;
+}
+
+h1 {
+    color: #333;
+}
+
+a {
+    color: #0066cc;
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+/* Directory Browser Styles */
+.breadcrumb {
+    margin-bottom: 20px;
+    color: #666;
+}
+
+.entry {
+    margin: 5px 0;
+}
+
+.directory {
+    font-weight: bold;
+}
+
+.file {
+    color: #666;
+}
+
+.icon {
+    margin-right: 8px;
+}
+
+/* Editor Styles */
+.editor-container {
+    display: flex;
+    gap: 20px;
+    height: 80vh;
+}
+
+.editor-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+textarea {
+    flex: 1;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    border: 1px solid #ddd;
+    padding: 10px;
+    resize: none;
+}
+
+.preview {
+    flex: 1;
+    border: 1px solid #ddd;
+    padding: 10px;
+    background: #fafafa;
+    overflow-y: auto;
+}
+
+.buttons {
+    margin: 20px 0;
+}
+
+button {
+    background: #0066cc;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    margin-right: 10px;
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+button:hover {
+    background: #0052a3;
+}
+
+.cancel {
+    background: #666;
+}
+
+.cancel:hover {
+    background: #444;
+}
+
+/* Success Page Styles */
+body.center {
+    margin: 40px;
+    text-align: center;
+}
+
+.success {
+    color: #28a745;
+}
+
+button.save-buttons {
+    margin: 10px;
+}

@@ -85,3 +85,7 @@ just check            # Run lint and test
 ## Quality Assurance
 
 - Your task is not complete unless "just check" passes without warnings or errors
+
+## Web Development Best Practices
+
+- Don't use inline javascript or css, use static files and serve them from a /static/ directory
