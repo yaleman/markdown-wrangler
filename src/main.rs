@@ -22,7 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Watching directory: {}", cli.target_dir.display());
 
-    start_server().await?;
+    start_server(cli.target_dir).await?;
 
     Ok(())
 }
