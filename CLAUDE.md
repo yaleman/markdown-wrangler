@@ -70,3 +70,7 @@ just check            # Run lint and test
 
 - Tasks aren't done until "just check" passes
 - When your work is done on a request, you must commit it to git
+
+## Testing
+
+- Add test coverage for sensible paths on any new code
