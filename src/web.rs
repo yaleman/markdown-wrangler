@@ -179,9 +179,29 @@ fn generate_editor_html(file_path: &str, content: &str) -> String {
         const textarea = document.querySelector('textarea');
         const preview = document.getElementById('preview');
         
+        // Function to strip frontmatter from markdown content
+        function stripFrontmatter(content) {{
+            // Handle YAML frontmatter (--- ... ---)
+            const yamlFrontmatterRegex = /^---\s*\n([\s\S]*?)\n---\s*\n/;
+            
+            // Handle JSON frontmatter ({{ ... }})
+            const jsonFrontmatterRegex = /^\{{\s*\n([\s\S]*?)\n\}}\s*\n/;
+            
+            // Try YAML first, then JSON
+            let cleanContent = content.replace(yamlFrontmatterRegex, '');
+            if (cleanContent === content) {{
+                cleanContent = content.replace(jsonFrontmatterRegex, '');
+            }}
+            
+            return cleanContent;
+        }}
+        
         // Simple markdown preview (basic implementation)
         function updatePreview() {{
             let content = textarea.value;
+            
+            // Strip frontmatter before processing
+            content = stripFrontmatter(content);
             
             // Basic markdown processing
             content = content
@@ -403,6 +423,7 @@ fn create_router(state: AppState) -> Router {
 
 pub async fn start_server(target_dir: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let state = AppState { target_dir };
+    #[allow(clippy::default_constructed_unit_structs)]
     let app = create_router(state)
         .layer(OtelInResponseLayer::default())
         .layer(OtelAxumLayer::default());

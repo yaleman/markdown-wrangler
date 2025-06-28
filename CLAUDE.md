@@ -1,6 +1,7 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with
+code in this repository.
 
 ## Project Overview
 
@@ -40,12 +41,15 @@ just check            # Run lint and test
 ## Architecture Notes
 
 ### Project Structure
-- `src/main.rs` - Application entry point with async runtime and module orchestration
+
+- `src/main.rs` - Application entry point with async runtime and module
+  orchestration
 - `src/cli.rs` - Command line argument parsing using clap
 - `src/log_wrangler.rs` - Tracing and OpenTelemetry initialization
 - `src/web.rs` - Axum web server with HTTP routing and middleware
 
 ### Key Dependencies
+
 - **tokio** - Async runtime with full features and tracing support
 - **axum** - Web framework for HTTP server functionality
 - **clap** - CLI argument parsing with derive features
@@ -58,19 +62,26 @@ just check            # Run lint and test
 - **serde** - Serialization framework with derive macros
 
 ### Web Server
+
 - Listens on port 5420 (0.0.0.0:5420)
 - Routes: `/` returns "Hello World", all other paths return 404 "not found"
 - Includes OpenTelemetry tracing middleware for request monitoring
 - Supports both normal and debug logging modes via --debug flag
 
 ### Static Site Generator Compatibility
+
 - Intended to support both Hugo and Zola static site generator formats
 
 ## Development Guidelines
 
 - Tasks aren't done until "just check" passes
 - When your work is done on a request, you must commit it to git
+- Seriously it's mandatory to git commit things at the end of your task
 
 ## Testing
 
 - Add test coverage for sensible paths on any new code
+
+## Quality Assurance
+
+- Your task is not complete unless "just check" passes without warnings or errors
