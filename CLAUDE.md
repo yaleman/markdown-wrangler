@@ -39,9 +39,31 @@ just check            # Run lint and test
 
 ## Architecture Notes
 
-- Project is in early development stage with minimal implementation
-- Single main.rs entry point currently contains placeholder code
-- Dependencies include tokio (async runtime), clap (CLI parsing), axum (web framework), askama (templating), and serde (serialization)
+### Project Structure
+- `src/main.rs` - Application entry point with async runtime and module orchestration
+- `src/cli.rs` - Command line argument parsing using clap
+- `src/log_wrangler.rs` - Tracing and OpenTelemetry initialization
+- `src/web.rs` - Axum web server with HTTP routing and middleware
+
+### Key Dependencies
+- **tokio** - Async runtime with full features and tracing support
+- **axum** - Web framework for HTTP server functionality
+- **clap** - CLI argument parsing with derive features
+- **tracing ecosystem** - Structured logging and OpenTelemetry integration
+  - `tracing` - Core tracing library
+  - `tracing-subscriber` - Subscriber implementations with env-filter
+  - `tracing-opentelemetry` - OpenTelemetry integration with metrics
+  - `axum-tracing-opentelemetry` - Axum middleware for request tracing
+- **askama** - HTML templating with serde_json support
+- **serde** - Serialization framework with derive macros
+
+### Web Server
+- Listens on port 5420 (0.0.0.0:5420)
+- Routes: `/` returns "Hello World", all other paths return 404 "not found"
+- Includes OpenTelemetry tracing middleware for request monitoring
+- Supports both normal and debug logging modes via --debug flag
+
+### Static Site Generator Compatibility
 - Intended to support both Hugo and Zola static site generator formats
 
 ## Development Guidelines
