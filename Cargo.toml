@@ -1,0 +1,12 @@
+[package]
+name = "markdown-wrangler"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+askama = { version = "0.14.0", features = ["serde_json"] }
+askama_web = { version = "0.14.4", features = ["axum-0.8"] }
+clap = { version = "4.5.40", features = ["derive"] }
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+tokio = { version = "1.45.1", features = ["full", "tracing"] }
