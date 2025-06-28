@@ -329,11 +329,40 @@ async fn save_file(
     }
 
     match validate_file_path(&state.target_dir, &form.path) {
-        Ok(full_path) => match write_file_content(&full_path, &form.content) {
-            Ok(()) => {
-                info!("File saved successfully: {}", form.path);
-                let success_html = format!(
-                    r#"<!DOCTYPE html>
+        Ok(full_path) => {
+            // Read existing content to check if it has changed
+            match read_file_content(&full_path) {
+                Ok(existing_content) => {
+                    if existing_content == form.content {
+                        // Content hasn't changed, don't write to disk
+                        info!("File content unchanged, skipping write: {}", form.path);
+                        let no_change_html = format!(
+                            r#"<!DOCTYPE html>
+<html>
+<head>
+    <title>File Unchanged - Markdown Wrangler</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="center">
+    <h1 class="success">ℹ️ No Changes to Save</h1>
+    <p>The file <strong>{}</strong> content is unchanged.</p>
+    <div class="buttons">
+        <button class="save-buttons" onclick="window.location.href='/edit?path={}'">📝 Continue Editing</button>
+        <button class="save-buttons" onclick="window.location.href='/'">📁 Back to Files</button>
+    </div>
+</body>
+</html>"#,
+                            html_escape::encode_text(&form.path),
+                            urlencoding::encode(&form.path)
+                        );
+                        Ok(Html(no_change_html))
+                    } else {
+                        // Content has changed, write to disk
+                        match write_file_content(&full_path, &form.content) {
+                            Ok(()) => {
+                                info!("File saved successfully: {}", form.path);
+                                let success_html = format!(
+                                    r#"<!DOCTYPE html>
 <html>
 <head>
     <title>File Saved - Markdown Wrangler</title>
@@ -341,26 +370,37 @@ async fn save_file(
 </head>
 <body class="center">
     <h1 class="success">✅ File Saved Successfully!</h1>
-    <p>The file <strong>{}</strong> has been saved.</p>
+                                    <p>The file <strong>{}</strong> has been saved.</p>
     <div class="buttons">
         <button class="save-buttons" onclick="window.location.href='/edit?path={}'">📝 Continue Editing</button>
         <button class="save-buttons" onclick="window.location.href='/'">📁 Back to Files</button>
     </div>
 </body>
 </html>"#,
-                    html_escape::encode_text(&form.path),
-                    urlencoding::encode(&form.path)
-                );
-                Ok(Html(success_html))
+                                    html_escape::encode_text(&form.path),
+                                    urlencoding::encode(&form.path)
+                                );
+                                Ok(Html(success_html))
+                            }
+                            Err(err) => {
+                                warn!("File save error: {}", err);
+                                Err((
+                                    StatusCode::INTERNAL_SERVER_ERROR,
+                                    format!("Error saving file: {}", err),
+                                ))
+                            }
+                        }
+                    }
+                }
+                Err(err) => {
+                    warn!("File read error during save comparison: {}", err);
+                    Err((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Error reading file for comparison: {}", err),
+                    ))
+                }
             }
-            Err(err) => {
-                warn!("File save error: {}", err);
-                Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Error saving file: {}", err),
-                ))
-            }
-        },
+        }
         Err(err) => {
             warn!("File validation error during save: {}", err);
             Err((StatusCode::BAD_REQUEST, format!("Error: {}", err)))
