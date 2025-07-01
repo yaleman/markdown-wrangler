@@ -57,7 +57,7 @@ struct FileContent {
     modified_time: String,
 }
 
-fn generate_csrf_token(secret: &str) -> String {
+pub(crate) fn generate_csrf_token(secret: &str) -> String {
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -73,7 +73,7 @@ fn generate_csrf_token(secret: &str) -> String {
     format!("{}:{}", payload, signature)
 }
 
-fn validate_csrf_token(token: &str, secret: &str) -> bool {
+pub(crate) fn validate_csrf_token(token: &str, secret: &str) -> bool {
     let parts: Vec<&str> = token.split(':').collect();
     if parts.len() != 3 {
         return false;
@@ -1094,4 +1094,286 @@ pub async fn start_server(target_dir: PathBuf) -> Result<(), Box<dyn std::error:
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{
+        body::Body,
+        http::{Method, Request, StatusCode},
+    };
+    use http_body_util::BodyExt;
+    use tempfile::TempDir;
+    use tower::ServiceExt;
+
+    async fn create_test_app() -> (Router, TempDir, String) {
+        let temp_dir = TempDir::new().unwrap();
+        let csrf_secret = "test_secret_key_for_csrf_testing".to_string();
+        let state = AppState {
+            target_dir: temp_dir.path().to_path_buf(),
+            csrf_secret: csrf_secret.clone(),
+        };
+        let app = create_router(state);
+        (app, temp_dir, csrf_secret)
+    }
+
+    #[test]
+    fn test_csrf_token_generation() {
+        let secret = "test_secret";
+        let token = generate_csrf_token(secret);
+        
+        // Token should have 3 parts separated by colons
+        let parts: Vec<&str> = token.split(':').collect();
+        assert_eq!(parts.len(), 3);
+        
+        // All parts should be non-empty
+        assert!(!parts[0].is_empty()); // timestamp
+        assert!(!parts[1].is_empty()); // nonce
+        assert!(!parts[2].is_empty()); // signature
+    }
+
+    #[test]
+    fn test_csrf_token_validation_valid() {
+        let secret = "test_secret";
+        let token = generate_csrf_token(secret);
+        
+        // Valid token should pass validation
+        assert!(validate_csrf_token(&token, secret));
+    }
+
+    #[test]
+    fn test_csrf_token_validation_wrong_secret() {
+        let secret = "test_secret";
+        let wrong_secret = "wrong_secret";
+        let token = generate_csrf_token(secret);
+        
+        // Token with wrong secret should fail validation
+        assert!(!validate_csrf_token(&token, wrong_secret));
+    }
+
+    #[test]
+    fn test_csrf_token_validation_malformed() {
+        let secret = "test_secret";
+        
+        // Various malformed tokens should fail validation
+        assert!(!validate_csrf_token("", secret));
+        assert!(!validate_csrf_token("invalid", secret));
+        assert!(!validate_csrf_token("only:two", secret));
+        assert!(!validate_csrf_token("too:many:parts:here", secret));
+        assert!(!validate_csrf_token(":::", secret));
+    }
+
+    #[test]
+    fn test_csrf_token_validation_expired() {
+        let secret = "test_secret";
+        
+        // Create an expired token (timestamp from 2 hours ago)
+        let expired_timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            - 7200; // 2 hours ago
+        
+        let payload = format!("{}:12345", expired_timestamp);
+        let mut hasher = Sha256::new();
+        hasher.update(payload.as_bytes());
+        hasher.update(secret.as_bytes());
+        let signature = hex::encode(hasher.finalize());
+        let expired_token = format!("{}:{}", payload, signature);
+        
+        // Expired token should fail validation
+        assert!(!validate_csrf_token(&expired_token, secret));
+    }
+
+    #[test]
+    fn test_csrf_token_validation_invalid_timestamp() {
+        let secret = "test_secret";
+        
+        // Token with invalid timestamp should fail validation
+        let invalid_token = "invalid_timestamp:12345:signature";
+        assert!(!validate_csrf_token(invalid_token, secret));
+    }
+
+    #[tokio::test]
+    async fn test_save_endpoint_without_csrf_token() {
+        let (app, temp_dir, _) = create_test_app().await;
+        
+        // Create a test markdown file
+        let test_file = temp_dir.path().join("test.md");
+        std::fs::write(&test_file, "# Test").unwrap();
+        
+        // Try to save without CSRF token
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/save")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from("path=test.md&content=# Updated Content"))
+            .unwrap();
+        
+        let response = app.oneshot(request).await.unwrap();
+        
+        // Should return 422 Unprocessable Entity due to missing CSRF token
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn test_save_endpoint_with_invalid_csrf_token() {
+        let (app, temp_dir, _) = create_test_app().await;
+        
+        // Create a test markdown file
+        let test_file = temp_dir.path().join("test.md");
+        std::fs::write(&test_file, "# Test").unwrap();
+        
+        // Try to save with invalid CSRF token
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/save")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from("path=test.md&content=# Updated Content&csrf_token=invalid"))
+            .unwrap();
+        
+        let response = app.oneshot(request).await.unwrap();
+        
+        // Should return 403 Forbidden due to invalid CSRF token
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn test_save_endpoint_with_valid_csrf_token() {
+        let (app, temp_dir, csrf_secret) = create_test_app().await;
+        
+        // Create a test markdown file
+        let test_file = temp_dir.path().join("test.md");
+        std::fs::write(&test_file, "# Test").unwrap();
+        
+        // Generate valid CSRF token
+        let csrf_token = generate_csrf_token(&csrf_secret);
+        
+        // Save with valid CSRF token
+        let body = format!("path=test.md&content=# Updated Content&csrf_token={}", 
+                          urlencoding::encode(&csrf_token));
+        
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/save")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap();
+        
+        let response = app.oneshot(request).await.unwrap();
+        
+        // Should succeed
+        assert_eq!(response.status(), StatusCode::OK);
+        
+        // Verify file content was updated
+        let content = std::fs::read_to_string(&test_file).unwrap();
+        assert_eq!(content, "# Updated Content");
+    }
+
+    #[tokio::test]
+    async fn test_delete_endpoint_without_csrf_token() {
+        let (app, temp_dir, _) = create_test_app().await;
+        
+        // Create a test markdown file
+        let test_file = temp_dir.path().join("test.md");
+        std::fs::write(&test_file, "# Test").unwrap();
+        
+        // Try to delete without CSRF token
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/delete")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from("path=test.md"))
+            .unwrap();
+        
+        let response = app.oneshot(request).await.unwrap();
+        
+        // Should return 422 Unprocessable Entity due to missing CSRF token
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        
+        // File should still exist
+        assert!(test_file.exists());
+    }
+
+    #[tokio::test]
+    async fn test_delete_endpoint_with_valid_csrf_token() {
+        let (app, temp_dir, csrf_secret) = create_test_app().await;
+        
+        // Create a test markdown file
+        let test_file = temp_dir.path().join("test.md");
+        std::fs::write(&test_file, "# Test").unwrap();
+        
+        // Generate valid CSRF token
+        let csrf_token = generate_csrf_token(&csrf_secret);
+        
+        // Delete with valid CSRF token
+        let body = format!("path=test.md&csrf_token={}", 
+                          urlencoding::encode(&csrf_token));
+        
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/delete")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap();
+        
+        let response = app.oneshot(request).await.unwrap();
+        
+        // Should succeed
+        assert_eq!(response.status(), StatusCode::OK);
+        
+        // File should be deleted
+        assert!(!test_file.exists());
+    }
+
+    #[tokio::test]
+    async fn test_edit_page_contains_csrf_token() {
+        let (app, temp_dir, _) = create_test_app().await;
+        
+        // Create a test markdown file
+        let test_file = temp_dir.path().join("test.md");
+        std::fs::write(&test_file, "# Test Content").unwrap();
+        
+        // Request the edit page
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/edit?path=test.md")
+            .body(Body::empty())
+            .unwrap();
+        
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        
+        // Get response body
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        
+        // Verify CSRF token is present in both forms
+        assert!(html.contains(r#"name="csrf_token""#));
+        
+        // Should have at least 2 CSRF token fields (save form and delete form)
+        let csrf_count = html.matches(r#"name="csrf_token""#).count();
+        assert_eq!(csrf_count, 2);
+    }
+
+    #[test]
+    fn test_csrf_tokens_are_unique() {
+        let secret = "test_secret";
+        
+        // Generate multiple tokens
+        let token1 = generate_csrf_token(secret);
+        let token2 = generate_csrf_token(secret);
+        let token3 = generate_csrf_token(secret);
+        
+        // All tokens should be different (due to timestamp and nonce)
+        assert_ne!(token1, token2);
+        assert_ne!(token2, token3);
+        assert_ne!(token1, token3);
+        
+        // But all should validate with the same secret
+        assert!(validate_csrf_token(&token1, secret));
+        assert!(validate_csrf_token(&token2, secret));
+        assert!(validate_csrf_token(&token3, secret));
+    }
 }
