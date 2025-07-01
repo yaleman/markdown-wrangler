@@ -6,12 +6,14 @@ use axum::{
     routing::{get, post},
 };
 use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer};
+use rand::Rng;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
-    time::SystemTime,
+    time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::net::TcpListener;
 use tower_http::services::ServeDir;
@@ -20,6 +22,7 @@ use tracing::{info, warn};
 #[derive(Clone)]
 pub struct AppState {
     pub target_dir: PathBuf,
+    pub csrf_secret: String,
 }
 
 #[derive(Debug)]
@@ -33,11 +36,13 @@ struct DirectoryEntry {
 struct EditForm {
     path: String,
     content: String,
+    csrf_token: String,
 }
 
 #[derive(Deserialize)]
 struct DeleteForm {
     path: String,
+    csrf_token: String,
 }
 
 #[derive(Serialize)]
@@ -50,6 +55,54 @@ struct FileInfo {
 struct FileContent {
     content: String,
     modified_time: String,
+}
+
+fn generate_csrf_token(secret: &str) -> String {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let nonce: u64 = rand::thread_rng().r#gen();
+    
+    let payload = format!("{}:{}", timestamp, nonce);
+    let mut hasher = Sha256::new();
+    hasher.update(payload.as_bytes());
+    hasher.update(secret.as_bytes());
+    let signature = hex::encode(hasher.finalize());
+    
+    format!("{}:{}", payload, signature)
+}
+
+fn validate_csrf_token(token: &str, secret: &str) -> bool {
+    let parts: Vec<&str> = token.split(':').collect();
+    if parts.len() != 3 {
+        return false;
+    }
+    
+    let timestamp_str = parts[0];
+    let nonce = parts[1];
+    let provided_signature = parts[2];
+    
+    // Check if token is not too old (1 hour)
+    if let Ok(timestamp) = timestamp_str.parse::<u64>() {
+        let current_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        if current_time - timestamp > 3600 {
+            return false;
+        }
+    } else {
+        return false;
+    }
+    
+    let payload = format!("{}:{}", timestamp_str, nonce);
+    let mut hasher = Sha256::new();
+    hasher.update(payload.as_bytes());
+    hasher.update(secret.as_bytes());
+    let expected_signature = hex::encode(hasher.finalize());
+    
+    expected_signature == provided_signature
 }
 
 fn list_directory(base_dir: &Path, relative_path: &str) -> Result<Vec<DirectoryEntry>, String> {
@@ -233,9 +286,10 @@ fn get_file_modification_time(file_path: &Path) -> Result<String, String> {
         .map_err(|e| format!("Failed to get file modification time: {}", e))
 }
 
-fn generate_editor_html(file_path: &str, content: &str) -> String {
+fn generate_editor_html(file_path: &str, content: &str, csrf_token: &str) -> String {
     let escaped_content = html_escape::encode_text(content);
     let escaped_path = html_escape::encode_text(file_path);
+    let escaped_csrf_token = html_escape::encode_text(csrf_token);
 
     format!(
         r#"<!DOCTYPE html>
@@ -252,6 +306,7 @@ fn generate_editor_html(file_path: &str, content: &str) -> String {
     
     <form method="post" action="/save">
         <input type="hidden" name="path" value="{escaped_path}" />
+        <input type="hidden" name="csrf_token" value="{escaped_csrf_token}" />
         <div class="buttons">
             <button type="submit">💾 Save File</button>
             <button type="button" class="cancel" onclick="window.location.href='/'">❌ Cancel</button>
@@ -274,6 +329,7 @@ fn generate_editor_html(file_path: &str, content: &str) -> String {
     
     <form id="deleteForm" method="post" action="/delete" style="display: none;">
         <input type="hidden" name="path" value="{escaped_path}" />
+        <input type="hidden" name="csrf_token" value="{escaped_csrf_token}" />
     </form>
 
     <script src="/static/editor.js"></script>
@@ -283,7 +339,8 @@ fn generate_editor_html(file_path: &str, content: &str) -> String {
 </html>"#,
         file_path = file_path,
         escaped_path = escaped_path,
-        escaped_content = escaped_content
+        escaped_content = escaped_content,
+        escaped_csrf_token = escaped_csrf_token
     )
 }
 
@@ -560,7 +617,8 @@ async fn edit_file(
     match validate_file_path(&state.target_dir, file_path) {
         Ok(full_path) => match read_file_content(&full_path) {
             Ok(content) => {
-                let html = generate_editor_html(file_path, &content);
+                let csrf_token = generate_csrf_token(&state.csrf_secret);
+                let html = generate_editor_html(file_path, &content, &csrf_token);
                 Ok(Html(html))
             }
             Err(err) => {
@@ -582,6 +640,14 @@ async fn save_file(
     State(state): State<AppState>,
     Form(form): Form<EditForm>,
 ) -> Result<Html<String>, (StatusCode, String)> {
+    // Validate CSRF token
+    if !validate_csrf_token(&form.csrf_token, &state.csrf_secret) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Invalid CSRF token".to_string(),
+        ));
+    }
+
     if !is_markdown_file(&form.path) {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -943,6 +1009,14 @@ async fn delete_file(
     State(state): State<AppState>,
     Form(form): Form<DeleteForm>,
 ) -> Result<Html<String>, (StatusCode, String)> {
+    // Validate CSRF token
+    if !validate_csrf_token(&form.csrf_token, &state.csrf_secret) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Invalid CSRF token".to_string(),
+        ));
+    }
+
     // Validate the file path
     match validate_file_path(&state.target_dir, &form.path) {
         Ok(full_path) => {
@@ -1006,7 +1080,9 @@ fn create_router(state: AppState) -> Router {
 }
 
 pub async fn start_server(target_dir: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
-    let state = AppState { target_dir };
+    // Generate a random CSRF secret
+    let csrf_secret = hex::encode(rand::thread_rng().r#gen::<[u8; 32]>());
+    let state = AppState { target_dir, csrf_secret };
     #[allow(clippy::default_constructed_unit_structs)]
     let app = create_router(state)
         .layer(OtelInResponseLayer::default())
