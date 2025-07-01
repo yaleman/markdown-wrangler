@@ -209,25 +209,14 @@ fn is_executable_file(path: &str) -> bool {
     EXECUTABLE_EXTENSIONS.contains(&lower_path.split('.').next_back().unwrap_or(""))
 }
 
+const IFRAME_SAFE_EXTENSIONS: &[&str] = &[
+    "txt", "html", "htm", "css", "js", "json", "xml", "pdf", "csv", "log", "yml", "yaml", "toml", "ini", "conf", "cfg",
+];
+
 fn is_safe_for_iframe(path: &str) -> bool {
     let lower_path = path.to_lowercase();
     // Allow text files, web files, and documents that browsers can display safely
-    lower_path.ends_with(".txt")
-        || lower_path.ends_with(".html")
-        || lower_path.ends_with(".htm")
-        || lower_path.ends_with(".css")
-        || lower_path.ends_with(".js")
-        || lower_path.ends_with(".json")
-        || lower_path.ends_with(".xml")
-        || lower_path.ends_with(".pdf")
-        || lower_path.ends_with(".csv")
-        || lower_path.ends_with(".log")
-        || lower_path.ends_with(".yml")
-        || lower_path.ends_with(".yaml")
-        || lower_path.ends_with(".toml")
-        || lower_path.ends_with(".ini")
-        || lower_path.ends_with(".conf")
-        || lower_path.ends_with(".cfg")
+    IFRAME_SAFE_EXTENSIONS.contains(&lower_path.split('.').next_back().unwrap_or(""))
 }
 
 fn read_file_content(file_path: &Path) -> Result<String, String> {
@@ -1517,5 +1506,68 @@ mod tests {
         // Test partial matches that shouldn't work
         assert!(!is_executable_file("exefile.txt"));
         assert!(!is_executable_file("not_bat_file.doc"));
+    }
+
+    #[test]
+    fn test_is_safe_for_iframe() {
+        // Test text files
+        assert!(is_safe_for_iframe("document.txt"));
+        assert!(is_safe_for_iframe("README.txt"));
+        assert!(is_safe_for_iframe("notes.log"));
+
+        // Test web files
+        assert!(is_safe_for_iframe("index.html"));
+        assert!(is_safe_for_iframe("page.htm"));
+        assert!(is_safe_for_iframe("styles.css"));
+        assert!(is_safe_for_iframe("script.js"));
+
+        // Test data files
+        assert!(is_safe_for_iframe("data.json"));
+        assert!(is_safe_for_iframe("config.xml"));
+        assert!(is_safe_for_iframe("spreadsheet.csv"));
+
+        // Test configuration files
+        assert!(is_safe_for_iframe("config.yml"));
+        assert!(is_safe_for_iframe("settings.yaml"));
+        assert!(is_safe_for_iframe("Cargo.toml"));
+        assert!(is_safe_for_iframe("config.ini"));
+        assert!(is_safe_for_iframe("app.conf"));
+        assert!(is_safe_for_iframe("settings.cfg"));
+
+        // Test documents
+        assert!(is_safe_for_iframe("manual.pdf"));
+
+        // Test case insensitivity
+        assert!(is_safe_for_iframe("DOCUMENT.TXT"));
+        assert!(is_safe_for_iframe("Index.HTML"));
+        assert!(is_safe_for_iframe("Config.JSON"));
+        assert!(is_safe_for_iframe("Settings.YAML"));
+
+        // Test with paths
+        assert!(is_safe_for_iframe("docs/readme.txt"));
+        assert!(is_safe_for_iframe("/var/log/system.log"));
+        assert!(is_safe_for_iframe("../config/app.toml"));
+
+        // Test unsafe file types
+        assert!(!is_safe_for_iframe("program.exe"));
+        assert!(!is_safe_for_iframe("script.bat"));
+        assert!(!is_safe_for_iframe("image.jpg"));
+        assert!(!is_safe_for_iframe("archive.zip"));
+        assert!(!is_safe_for_iframe("binary.bin"));
+        assert!(!is_safe_for_iframe("unknown.xyz"));
+
+        // Test files without extensions
+        assert!(!is_safe_for_iframe("filename"));
+        assert!(!is_safe_for_iframe("no_extension"));
+
+        // Test empty string and edge cases
+        assert!(!is_safe_for_iframe(""));
+        assert!(!is_safe_for_iframe("."));
+        assert!(!is_safe_for_iframe(".."));
+        assert!(!is_safe_for_iframe(".hidden"));
+
+        // Test partial matches that shouldn't work
+        assert!(!is_safe_for_iframe("txtfile.exe"));
+        assert!(!is_safe_for_iframe("not_html_file.doc"));
     }
 }
