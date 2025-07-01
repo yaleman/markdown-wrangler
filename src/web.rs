@@ -124,8 +124,7 @@ fn list_directory(base_dir: &Path, relative_path: &str) -> Result<Vec<DirectoryE
         return Err("Path outside base directory".to_string());
     }
 
-    let entries =
-        fs::read_dir(&full_path).map_err(|e| format!("Failed to read directory: {e}"))?;
+    let entries = fs::read_dir(&full_path).map_err(|e| format!("Failed to read directory: {e}"))?;
 
     let mut directory_entries = Vec::new();
 
@@ -192,17 +191,13 @@ fn is_markdown_file(path: &str) -> bool {
     path.to_lowercase().ends_with(".md") || path.to_lowercase().ends_with(".markdown")
 }
 
+const IMAGE_EXTENSIONS: &[&str] = &[
+    "jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "tiff", "tif",
+];
+
 fn is_image_file(path: &str) -> bool {
     let lower_path = path.to_lowercase();
-    lower_path.ends_with(".jpg")
-        || lower_path.ends_with(".jpeg")
-        || lower_path.ends_with(".png")
-        || lower_path.ends_with(".gif")
-        || lower_path.ends_with(".webp")
-        || lower_path.ends_with(".svg")
-        || lower_path.ends_with(".bmp")
-        || lower_path.ends_with(".tiff")
-        || lower_path.ends_with(".tif")
+    IMAGE_EXTENSIONS.contains(&lower_path.split(".").last().unwrap_or(""))
 }
 
 fn is_executable_file(path: &str) -> bool {
@@ -1422,5 +1417,55 @@ mod tests {
         assert!(validate_csrf_token(&token1, secret));
         assert!(validate_csrf_token(&token2, secret));
         assert!(validate_csrf_token(&token3, secret));
+    }
+
+    #[test]
+    fn test_is_image_file() {
+        // Test common image file extensions
+        assert!(is_image_file("photo.jpg"));
+        assert!(is_image_file("image.jpeg"));
+        assert!(is_image_file("picture.png"));
+        assert!(is_image_file("animation.gif"));
+        assert!(is_image_file("modern.webp"));
+        assert!(is_image_file("vector.svg"));
+        assert!(is_image_file("bitmap.bmp"));
+        assert!(is_image_file("professional.tiff"));
+        assert!(is_image_file("scan.tif"));
+
+        // Test case insensitivity
+        assert!(is_image_file("PHOTO.JPG"));
+        assert!(is_image_file("Image.PNG"));
+        assert!(is_image_file("Vector.SVG"));
+
+        // Test mixed case
+        assert!(is_image_file("MyPhoto.JpEg"));
+        assert!(is_image_file("screenshot.Png"));
+
+        // Test with paths
+        assert!(is_image_file("assets/images/photo.jpg"));
+        assert!(is_image_file("/home/user/pictures/vacation.png"));
+        assert!(is_image_file("../images/logo.svg"));
+
+        // Test non-image files
+        assert!(!is_image_file("document.txt"));
+        assert!(!is_image_file("script.js"));
+        assert!(!is_image_file("style.css"));
+        assert!(!is_image_file("data.json"));
+        assert!(!is_image_file("README.md"));
+        assert!(!is_image_file("config.toml"));
+
+        // Test files without extensions
+        assert!(!is_image_file("filename"));
+        assert!(!is_image_file("no_extension"));
+
+        // Test empty string and edge cases
+        assert!(!is_image_file(""));
+        assert!(!is_image_file("."));
+        assert!(!is_image_file(".."));
+        assert!(!is_image_file(".hidden"));
+
+        // Test partial matches that shouldn't work
+        assert!(!is_image_file("jpgfile.txt"));
+        assert!(!is_image_file("not_png_file.doc"));
     }
 }
