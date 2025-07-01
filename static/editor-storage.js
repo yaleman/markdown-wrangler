@@ -182,29 +182,36 @@ class EditorStorage {
     }
 
     showDraftStatus(message, type = 'info') {
-        // Create or update status message
-        let statusEl = document.getElementById('draft-status');
-        if (!statusEl) {
-            statusEl = document.createElement('div');
-            statusEl.id = 'draft-status';
-            statusEl.className = 'draft-status';
-
-            // Insert after breadcrumb
-            const breadcrumb = document.querySelector('.breadcrumb');
-            if (breadcrumb) {
-                breadcrumb.insertAdjacentElement('afterend', statusEl);
-            }
+        // Remove any existing toast
+        const existingToast = document.getElementById('draft-status');
+        if (existingToast) {
+            existingToast.remove();
         }
 
-        statusEl.textContent = message;
-        statusEl.className = `draft-status ${type}`;
+        // Create new toast
+        const toast = document.createElement('div');
+        toast.id = 'draft-status';
+        toast.className = `draft-status ${type}`;
+        toast.textContent = message;
+
+        // Append to body
+        document.body.appendChild(toast);
+
+        // Trigger animation after a frame to ensure element is rendered
+        requestAnimationFrame(() => {
+            toast.classList.add('show');
+        });
 
         // Auto-hide after 3 seconds for info messages
         if (type === 'info') {
             setTimeout(() => {
-                if (statusEl && statusEl.textContent === message) {
-                    statusEl.style.opacity = '0';
-                    setTimeout(() => statusEl.remove(), 300);
+                if (toast && toast.parentNode) {
+                    toast.classList.remove('show');
+                    setTimeout(() => {
+                        if (toast.parentNode) {
+                            toast.remove();
+                        }
+                    }, 300);
                 }
             }, 3000);
         }
