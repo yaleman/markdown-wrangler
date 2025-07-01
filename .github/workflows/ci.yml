@@ -36,14 +36,11 @@ jobs:
     - name: Install JavaScript dependencies
       run: npm ci
     
-    - name: Run Rust clippy
-      run: cargo clippy --all-targets -- -D warnings
+    - name: Install just
+      run: cargo install just
     
-    - name: Run Rust tests
-      run: cargo test
-    
-    - name: Run JavaScript linting
-      run: npm run lint
+    - name: Run quality checks
+      run: just check
     
     - name: Check JavaScript formatting
       run: npx prettier --check static/*.js
