@@ -81,20 +81,31 @@ function updatePreview() {
     // Process lists first (before other processing)
     content = processLists(content);
 
-    // Basic markdown processing
+    // Basic markdown processing (inline elements first)
     content = content
         .replace(/~~(.*?)~~/gim, '<del>$1</del>')
-        .replace(/^### (.*$)/gim, '<h3>$1</h3>')
-        .replace(/^## (.*$)/gim, '<h2>$1</h2>')
-        .replace(/^# (.*$)/gim, '<h1>$1</h1>')
         .replace(/\*\*(.*?)\*\*/gim, '<strong>$1</strong>')
         .replace(/\*(.*?)\*/gim, '<em>$1</em>')
         .replace(/\[([^\]]+)\]\(([^)]+)\)/gim, '<a href="$2">$1</a>')
-        .replace(/`([^`]+)`/gim, '<code>$1</code>')
-        .replace(/\n/gim, '<br>')
-        // Clean up unwanted <br> tags around list elements
-        .replace(/<br>\s*(<\/?(?:ul|ol|li)>)/gim, '$1')
-        .replace(/(<\/?(?:ul|ol|li)>)\s*<br>/gim, '$1');
+        .replace(/`([^`]+)`/gim, '<code>$1</code>');
+
+    // Process paragraphs and block elements
+    content = content
+        .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+        .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+        .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+        // Split on double newlines to create paragraphs
+        .split(/\n\s*\n/)
+        .map((paragraph) => {
+            paragraph = paragraph.trim();
+            if (!paragraph) return '';
+            // Don't wrap headers, lists, or already wrapped HTML in <p> tags
+            if (paragraph.match(/^<(?:h[1-6]|ul|ol|li)/)) {
+                return paragraph;
+            }
+            return `<p>${paragraph.replace(/\n/g, ' ')}</p>`;
+        })
+        .join('\n');
 
     preview.innerHTML = content || '<p><em>Preview will appear here as you type...</em></p>';
 }

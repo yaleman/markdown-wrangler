@@ -90,6 +90,19 @@ textarea {
     line-height: 1.4;
 }
 
+.preview p {
+    margin: 10px 0;
+    line-height: 1.6;
+}
+
+.preview p:first-child {
+    margin-top: 0;
+}
+
+.preview p:last-child {
+    margin-bottom: 0;
+}
+
 .buttons {
     margin: 20px 0;
 }
