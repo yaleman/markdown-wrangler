@@ -275,6 +275,19 @@ fn format_file_size(size_bytes: u64) -> String {
     }
 }
 
+fn get_parent_directory_path(file_path: &str) -> String {
+    if let Some(parent) = std::path::Path::new(file_path).parent() {
+        let parent_str = parent.to_string_lossy();
+        if parent_str.is_empty() || parent_str == "." {
+            "/".to_string()
+        } else {
+            format!("/?path={}", urlencoding::encode(&parent_str))
+        }
+    } else {
+        "/".to_string()
+    }
+}
+
 fn get_file_modification_time(file_path: &Path) -> Result<String, String> {
     fs::metadata(file_path)
         .and_then(|metadata| metadata.modified())
@@ -346,6 +359,7 @@ fn generate_editor_html(file_path: &str, content: &str, csrf_token: &str) -> Str
 
 fn generate_image_preview_html(file_path: &str, file_size: &str) -> String {
     let escaped_path = html_escape::encode_text(file_path);
+    let parent_path = get_parent_directory_path(file_path);
 
     format!(
         r#"<!DOCTYPE html>
@@ -373,7 +387,7 @@ fn generate_image_preview_html(file_path: &str, file_size: &str) -> String {
     </div>
     
     <div class="buttons">
-        <button onclick="window.location.href='/'">📁 Back to Files</button>
+        <button onclick="window.location.href='{parent_path}'">📁 Back to Files</button>
         <button class="delete-btn" onclick="confirmDelete('{escaped_path}')">🗑️ Delete File</button>
     </div>
     
@@ -396,12 +410,14 @@ fn generate_image_preview_html(file_path: &str, file_size: &str) -> String {
         file_path = file_path,
         escaped_path = escaped_path,
         encoded_path = urlencoding::encode(file_path),
-        file_size = file_size
+        file_size = file_size,
+        parent_path = parent_path
     )
 }
 
 fn generate_file_preview_html(file_path: &str, file_size: &str) -> String {
     let escaped_path = html_escape::encode_text(file_path);
+    let parent_path = get_parent_directory_path(file_path);
     let can_iframe = is_safe_for_iframe(file_path);
 
     let preview_content = if can_iframe {
@@ -443,7 +459,7 @@ fn generate_file_preview_html(file_path: &str, file_size: &str) -> String {
     </div>
     
     <div class="buttons">
-        <button onclick="window.location.href='/'">📁 Back to Files</button>
+        <button onclick="window.location.href='{parent_path}'">📁 Back to Files</button>
         <button class="delete-btn" onclick="confirmDelete('{escaped_path}')">🗑️ Delete File</button>
     </div>
     
@@ -458,7 +474,8 @@ fn generate_file_preview_html(file_path: &str, file_size: &str) -> String {
         escaped_path = escaped_path,
         file_size = file_size,
         file_type = get_file_type_description(file_path),
-        preview_content = preview_content
+        preview_content = preview_content,
+        parent_path = parent_path
     )
 }
 
@@ -679,6 +696,7 @@ async fn save_file(
                     if existing_content == form.content {
                         // Content hasn't changed, don't write to disk
                         info!("File content unchanged, skipping write: {}", form.path);
+                        let parent_path = get_parent_directory_path(&form.path);
                         let no_change_html = format!(
                             r#"<!DOCTYPE html>
 <html>
@@ -691,12 +709,13 @@ async fn save_file(
     <p>The file <strong>{}</strong> content is unchanged.</p>
     <div class="buttons">
         <button class="save-buttons" onclick="window.location.href='/edit?path={}'">📝 Continue Editing</button>
-        <button class="save-buttons" onclick="window.location.href='/'">📁 Back to Files</button>
+        <button class="save-buttons" onclick="window.location.href='{}'">📁 Back to Files</button>
     </div>
 </body>
 </html>"#,
                             html_escape::encode_text(&form.path),
-                            urlencoding::encode(&form.path)
+                            urlencoding::encode(&form.path),
+                            parent_path
                         );
                         Ok(Html(no_change_html))
                     } else {
@@ -704,6 +723,7 @@ async fn save_file(
                         match write_file_content(&full_path, &form.content) {
                             Ok(()) => {
                                 info!("File saved successfully: {}", form.path);
+                                let parent_path = get_parent_directory_path(&form.path);
                                 let success_html = format!(
                                     r#"<!DOCTYPE html>
 <html>
@@ -716,12 +736,13 @@ async fn save_file(
                                     <p>The file <strong>{}</strong> has been saved.</p>
     <div class="buttons">
         <button class="save-buttons" onclick="window.location.href='/edit?path={}'">📝 Continue Editing</button>
-        <button class="save-buttons" onclick="window.location.href='/'">📁 Back to Files</button>
+        <button class="save-buttons" onclick="window.location.href='{}'">📁 Back to Files</button>
     </div>
 </body>
 </html>"#,
                                     html_escape::encode_text(&form.path),
-                                    urlencoding::encode(&form.path)
+                                    urlencoding::encode(&form.path),
+                                    parent_path
                                 );
                                 Ok(Html(success_html))
                             }
@@ -1041,6 +1062,7 @@ async fn delete_file(
         Ok(full_path) => match fs::remove_file(&full_path) {
             Ok(()) => {
                 info!("File deleted successfully: {}", form.path);
+                let parent_path = get_parent_directory_path(&form.path);
                 let success_html = format!(
                     r#"<!DOCTYPE html>
 <html>
@@ -1052,11 +1074,12 @@ async fn delete_file(
     <h1 class="success">🗑️ File Deleted Successfully!</h1>
     <p>The file <strong>{}</strong> has been deleted.</p>
     <div class="buttons">
-        <button class="save-buttons" onclick="window.location.href='/'">📁 Back to Files</button>
+        <button class="save-buttons" onclick="window.location.href='{}'">📁 Back to Files</button>
     </div>
 </body>
 </html>"#,
-                    html_escape::encode_text(&form.path)
+                    html_escape::encode_text(&form.path),
+                    parent_path
                 );
                 Ok(Html(success_html))
             }
