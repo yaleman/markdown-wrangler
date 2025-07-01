@@ -91,7 +91,10 @@ function updatePreview() {
         .replace(/\*(.*?)\*/gim, '<em>$1</em>')
         .replace(/\[([^\]]+)\]\(([^)]+)\)/gim, '<a href="$2">$1</a>')
         .replace(/`([^`]+)`/gim, '<code>$1</code>')
-        .replace(/\n/gim, '<br>');
+        .replace(/\n/gim, '<br>')
+        // Clean up unwanted <br> tags around list elements
+        .replace(/<br>\s*(<\/?(?:ul|ol|li)>)/gim, '$1')
+        .replace(/(<\/?(?:ul|ol|li)>)\s*<br>/gim, '$1');
 
     preview.innerHTML = content || '<p><em>Preview will appear here as you type...</em></p>';
 }
