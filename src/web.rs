@@ -64,13 +64,13 @@ pub(crate) fn generate_csrf_token(secret: &str) -> String {
         .as_secs();
     let nonce: u64 = rand::thread_rng().r#gen();
 
-    let payload = format!("{}:{}", timestamp, nonce);
+    let payload = format!("{timestamp}:{nonce}");
     let mut hasher = Sha256::new();
     hasher.update(payload.as_bytes());
     hasher.update(secret.as_bytes());
     let signature = hex::encode(hasher.finalize());
 
-    format!("{}:{}", payload, signature)
+    format!("{payload}:{signature}")
 }
 
 pub(crate) fn validate_csrf_token(token: &str, secret: &str) -> bool {
@@ -96,7 +96,7 @@ pub(crate) fn validate_csrf_token(token: &str, secret: &str) -> bool {
         return false;
     }
 
-    let payload = format!("{}:{}", timestamp_str, nonce);
+    let payload = format!("{timestamp_str}:{nonce}");
     let mut hasher = Sha256::new();
     hasher.update(payload.as_bytes());
     hasher.update(secret.as_bytes());
@@ -115,22 +115,22 @@ fn list_directory(base_dir: &Path, relative_path: &str) -> Result<Vec<DirectoryE
     // Security check: ensure the path is within the base directory
     let canonical_base = base_dir
         .canonicalize()
-        .map_err(|e| format!("Base directory error: {}", e))?;
+        .map_err(|e| format!("Base directory error: {e}"))?;
     let canonical_full = full_path
         .canonicalize()
-        .map_err(|e| format!("Path error: {}", e))?;
+        .map_err(|e| format!("Path error: {e}"))?;
 
     if !canonical_full.starts_with(&canonical_base) {
         return Err("Path outside base directory".to_string());
     }
 
     let entries =
-        fs::read_dir(&full_path).map_err(|e| format!("Failed to read directory: {}", e))?;
+        fs::read_dir(&full_path).map_err(|e| format!("Failed to read directory: {e}"))?;
 
     let mut directory_entries = Vec::new();
 
     for entry in entries {
-        let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
+        let entry = entry.map_err(|e| format!("Failed to read entry: {e}"))?;
         let file_name = entry.file_name().to_string_lossy().to_string();
 
         // Skip hidden files
@@ -140,13 +140,13 @@ fn list_directory(base_dir: &Path, relative_path: &str) -> Result<Vec<DirectoryE
 
         let is_directory = entry
             .file_type()
-            .map_err(|e| format!("Failed to get file type: {}", e))?
+            .map_err(|e| format!("Failed to get file type: {e}"))?
             .is_dir();
 
         let entry_path = if relative_path.is_empty() {
             file_name.clone()
         } else {
-            format!("{}/{}", relative_path, file_name)
+            format!("{relative_path}/{file_name}")
         };
 
         directory_entries.push(DirectoryEntry {
@@ -172,7 +172,7 @@ fn validate_file_path(base_dir: &Path, relative_path: &str) -> Result<PathBuf, S
     // Security check: ensure the path is within the base directory
     let canonical_base = base_dir
         .canonicalize()
-        .map_err(|e| format!("Base directory error: {}", e))?;
+        .map_err(|e| format!("Base directory error: {e}"))?;
     let canonical_full = full_path
         .canonicalize()
         .map_err(|_| "Path does not exist".to_string())?;
@@ -245,17 +245,17 @@ fn is_safe_for_iframe(path: &str) -> bool {
 }
 
 fn read_file_content(file_path: &Path) -> Result<String, String> {
-    fs::read_to_string(file_path).map_err(|e| format!("Failed to read file: {}", e))
+    fs::read_to_string(file_path).map_err(|e| format!("Failed to read file: {e}"))
 }
 
 fn write_file_content(file_path: &Path, content: &str) -> Result<(), String> {
-    fs::write(file_path, content).map_err(|e| format!("Failed to write file: {}", e))
+    fs::write(file_path, content).map_err(|e| format!("Failed to write file: {e}"))
 }
 
 fn get_file_size(file_path: &Path) -> Result<u64, String> {
     fs::metadata(file_path)
         .map(|metadata| metadata.len())
-        .map_err(|e| format!("Failed to get file metadata: {}", e))
+        .map_err(|e| format!("Failed to get file metadata: {e}"))
 }
 
 fn format_file_size(size_bytes: u64) -> String {
@@ -269,9 +269,9 @@ fn format_file_size(size_bytes: u64) -> String {
     }
 
     if unit_index == 0 {
-        format!("{} {}", size_bytes, UNITS[unit_index])
+        format!("{size_bytes} {}", UNITS[unit_index])
     } else {
-        format!("{:.1} {}", size, UNITS[unit_index])
+        format!("{size:.1} {}", UNITS[unit_index])
     }
 }
 
@@ -296,7 +296,7 @@ fn get_file_modification_time(file_path: &Path) -> Result<String, String> {
                 .map(|duration| duration.as_secs().to_string())
                 .unwrap_or_else(|_| "0".to_string())
         })
-        .map_err(|e| format!("Failed to get file modification time: {}", e))
+        .map_err(|e| format!("Failed to get file modification time: {e}"))
 }
 
 fn generate_editor_html(file_path: &str, content: &str, csrf_token: &str) -> String {
@@ -349,11 +349,7 @@ fn generate_editor_html(file_path: &str, content: &str, csrf_token: &str) -> Str
     <script src="/static/editor-storage.js"></script>
     <script src="/static/delete.js"></script>
 </body>
-</html>"#,
-        file_path = file_path,
-        escaped_path = escaped_path,
-        escaped_content = escaped_content,
-        escaped_csrf_token = escaped_csrf_token
+</html>"#
     )
 }
 
@@ -543,9 +539,8 @@ fn generate_directory_html(entries: &[DirectoryEntry], current_path: &str) -> St
             }
             path_so_far.push_str(part);
             html.push_str(&format!(
-                " / <a href=\"/?path={}\">{}</a>",
-                urlencoding::encode(&path_so_far),
-                part
+                " / <a href=\"/?path={}\">{part}</a>",
+                urlencoding::encode(&path_so_far)
             ));
         }
     }
@@ -564,8 +559,7 @@ fn generate_directory_html(entries: &[DirectoryEntry], current_path: &str) -> St
             format!("/?path={}", urlencoding::encode(parent_path))
         };
         html.push_str(&format!(
-            "<div class=\"entry\"><a href=\"{}\">📁 <span class=\"directory\">..</span></a></div>",
-            parent_url
+            "<div class=\"entry\"><a href=\"{parent_url}\">📁 <span class=\"directory\">..</span></a></div>"
         ));
     }
 
@@ -629,7 +623,7 @@ async fn index(
         }
         Err(err) => {
             warn!("Directory listing error: {}", err);
-            Err((StatusCode::BAD_REQUEST, format!("Error: {}", err)))
+            Err((StatusCode::BAD_REQUEST, format!("Error: {err}")))
         }
     }
 }
@@ -661,13 +655,13 @@ async fn edit_file(
                 warn!("File read error: {}", err);
                 Err((
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Error reading file: {}", err),
+                    format!("Error reading file: {err}"),
                 ))
             }
         },
         Err(err) => {
             warn!("File validation error: {}", err);
-            Err((StatusCode::BAD_REQUEST, format!("Error: {}", err)))
+            Err((StatusCode::BAD_REQUEST, format!("Error: {err}")))
         }
     }
 }
@@ -750,7 +744,7 @@ async fn save_file(
                                 warn!("File save error: {}", err);
                                 Err((
                                     StatusCode::INTERNAL_SERVER_ERROR,
-                                    format!("Error saving file: {}", err),
+                                    format!("Error saving file: {err}"),
                                 ))
                             }
                         }
@@ -760,14 +754,14 @@ async fn save_file(
                     warn!("File read error during save comparison: {}", err);
                     Err((
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Error reading file for comparison: {}", err),
+                        format!("Error reading file for comparison: {err}"),
                     ))
                 }
             }
         }
         Err(err) => {
             warn!("File validation error during save: {}", err);
-            Err((StatusCode::BAD_REQUEST, format!("Error: {}", err)))
+            Err((StatusCode::BAD_REQUEST, format!("Error: {err}")))
         }
     }
 }
@@ -806,7 +800,7 @@ async fn preview_image(
         }
         Err(err) => {
             warn!("File validation error: {}", err);
-            Err((StatusCode::BAD_REQUEST, format!("Error: {}", err)))
+            Err((StatusCode::BAD_REQUEST, format!("Error: {err}")))
         }
     }
 }
@@ -852,14 +846,14 @@ async fn serve_image(
                     warn!("Image read error: {}", err);
                     Err((
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Error reading image: {}", err),
+                        format!("Error reading image: {err}"),
                     ))
                 }
             }
         }
         Err(err) => {
             warn!("Image validation error: {}", err);
-            Err((StatusCode::BAD_REQUEST, format!("Error: {}", err)))
+            Err((StatusCode::BAD_REQUEST, format!("Error: {err}")))
         }
     }
 }
@@ -899,7 +893,7 @@ async fn preview_file(
         }
         Err(err) => {
             warn!("File validation error: {}", err);
-            Err((StatusCode::BAD_REQUEST, format!("Error: {}", err)))
+            Err((StatusCode::BAD_REQUEST, format!("Error: {err}")))
         }
     }
 }
@@ -952,14 +946,14 @@ async fn serve_file(
                     warn!("File read error: {}", err);
                     Err((
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Error reading file: {}", err),
+                        format!("Error reading file: {err}"),
                     ))
                 }
             }
         }
         Err(err) => {
             warn!("File validation error: {}", err);
-            Err((StatusCode::BAD_REQUEST, format!("Error: {}", err)))
+            Err((StatusCode::BAD_REQUEST, format!("Error: {err}")))
         }
     }
 }
@@ -990,14 +984,14 @@ async fn get_file_info(
                     warn!("Failed to get file info: {}", e);
                     Err((
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Error getting file info: {}", e),
+                        format!("Error getting file info: {e}"),
                     ))
                 }
             }
         }
         Err(err) => {
             warn!("File validation error: {}", err);
-            Err((StatusCode::BAD_REQUEST, format!("Error: {}", err)))
+            Err((StatusCode::BAD_REQUEST, format!("Error: {err}")))
         }
     }
 }
@@ -1036,14 +1030,14 @@ async fn get_file_content(
                     warn!("Failed to get file content: {}", e);
                     Err((
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Error getting file content: {}", e),
+                        format!("Error getting file content: {e}"),
                     ))
                 }
             }
         }
         Err(err) => {
             warn!("File validation error: {}", err);
-            Err((StatusCode::BAD_REQUEST, format!("Error: {}", err)))
+            Err((StatusCode::BAD_REQUEST, format!("Error: {err}")))
         }
     }
 }
@@ -1087,13 +1081,13 @@ async fn delete_file(
                 warn!("File deletion error: {}", err);
                 Err((
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Error deleting file: {}", err),
+                    format!("Error deleting file: {err}"),
                 ))
             }
         },
         Err(err) => {
             warn!("File validation error during deletion: {}", err);
-            Err((StatusCode::BAD_REQUEST, format!("Error: {}", err)))
+            Err((StatusCode::BAD_REQUEST, format!("Error: {err}")))
         }
     }
 }
@@ -1222,12 +1216,12 @@ mod tests {
             .as_secs()
             - 7200; // 2 hours ago
 
-        let payload = format!("{}:12345", expired_timestamp);
+        let payload = format!("{expired_timestamp}:12345");
         let mut hasher = Sha256::new();
         hasher.update(payload.as_bytes());
         hasher.update(secret.as_bytes());
         let signature = hex::encode(hasher.finalize());
-        let expired_token = format!("{}:{}", payload, signature);
+        let expired_token = format!("{payload}:{signature}");
 
         // Expired token should fail validation
         assert!(!validate_csrf_token(&expired_token, secret));

@@ -13,7 +13,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Validate CLI arguments
     if let Err(err) = cli.validate() {
-        eprintln!("Error: {}", err);
+        eprintln!("Error: {err}");
         std::process::exit(1);
     }
 
