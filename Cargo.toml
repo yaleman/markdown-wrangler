@@ -2,6 +2,13 @@
 name = "markdown-wrangler"
 version = "0.1.0"
 edition = "2024"
+license = "MPL-2.0"
+description = "A web interface for managing websites stored as folder structures of markdown files"
+homepage = "https://github.com/yaleman/markdown-wrangler"
+repository = "https://github.com/yaleman/markdown-wrangler"
+authors = ["James Hodgkinson <yaleman@ricetek.net>"]
+keywords = ["markdown", "web", "cms", "static-site", "hugo"]
+categories = ["web-programming", "text-processing"]
 
 [dependencies]
 askama = { version = "0.14.0", features = ["serde_json"] }

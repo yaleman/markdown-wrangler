@@ -233,4 +233,15 @@ Markdown Wrangler is designed to work with static site generators:
 
 ## License
 
-[Add your license information here]
+This project is licensed under the Mozilla Public License 2.0 (MPL-2.0). See the [LICENSE](LICENSE) file for details.
+
+The MPL-2.0 is a copyleft license that allows:
+- Use in commercial and private projects
+- Modification and distribution
+- Patent protection
+- Sublicensing under compatible licenses
+
+Key requirements:
+- Source code modifications must be shared under MPL-2.0
+- Copyright and license notices must be preserved
+- Changes to MPL-2.0 licensed files must be documented
