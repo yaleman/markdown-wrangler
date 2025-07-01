@@ -197,25 +197,16 @@ const IMAGE_EXTENSIONS: &[&str] = &[
 
 fn is_image_file(path: &str) -> bool {
     let lower_path = path.to_lowercase();
-    IMAGE_EXTENSIONS.contains(&lower_path.split(".").last().unwrap_or(""))
+    IMAGE_EXTENSIONS.contains(&lower_path.split('.').next_back().unwrap_or(""))
 }
+
+const EXECUTABLE_EXTENSIONS: &[&str] = &[
+    "exe", "bat", "cmd", "com", "scr", "msi", "sh", "ps1", "vbs", "app", "dmg", "pkg", "deb", "rpm",
+];
 
 fn is_executable_file(path: &str) -> bool {
     let lower_path = path.to_lowercase();
-    lower_path.ends_with(".exe")
-        || lower_path.ends_with(".bat")
-        || lower_path.ends_with(".cmd")
-        || lower_path.ends_with(".com")
-        || lower_path.ends_with(".scr")
-        || lower_path.ends_with(".msi")
-        || lower_path.ends_with(".sh")
-        || lower_path.ends_with(".ps1")
-        || lower_path.ends_with(".vbs")
-        || lower_path.ends_with(".app")
-        || lower_path.ends_with(".dmg")
-        || lower_path.ends_with(".pkg")
-        || lower_path.ends_with(".deb")
-        || lower_path.ends_with(".rpm")
+    EXECUTABLE_EXTENSIONS.contains(&lower_path.split('.').next_back().unwrap_or(""))
 }
 
 fn is_safe_for_iframe(path: &str) -> bool {
@@ -1467,5 +1458,64 @@ mod tests {
         // Test partial matches that shouldn't work
         assert!(!is_image_file("jpgfile.txt"));
         assert!(!is_image_file("not_png_file.doc"));
+    }
+
+    #[test]
+    fn test_is_executable_file() {
+        // Test Windows executable extensions
+        assert!(is_executable_file("program.exe"));
+        assert!(is_executable_file("script.bat"));
+        assert!(is_executable_file("command.cmd"));
+        assert!(is_executable_file("old_program.com"));
+        assert!(is_executable_file("screensaver.scr"));
+        assert!(is_executable_file("installer.msi"));
+
+        // Test Unix/Linux executable extensions
+        assert!(is_executable_file("script.sh"));
+
+        // Test PowerShell and other script extensions
+        assert!(is_executable_file("automation.ps1"));
+        assert!(is_executable_file("legacy.vbs"));
+
+        // Test macOS executable extensions
+        assert!(is_executable_file("Application.app"));
+        assert!(is_executable_file("disk_image.dmg"));
+        assert!(is_executable_file("package.pkg"));
+
+        // Test Linux package formats
+        assert!(is_executable_file("package.deb"));
+        assert!(is_executable_file("redhat.rpm"));
+
+        // Test case insensitivity
+        assert!(is_executable_file("PROGRAM.EXE"));
+        assert!(is_executable_file("Script.SH"));
+        assert!(is_executable_file("Package.DEB"));
+
+        // Test with paths
+        assert!(is_executable_file("bin/program.exe"));
+        assert!(is_executable_file("/usr/local/bin/script.sh"));
+        assert!(is_executable_file("../downloads/installer.msi"));
+
+        // Test non-executable files
+        assert!(!is_executable_file("document.txt"));
+        assert!(!is_executable_file("image.jpg"));
+        assert!(!is_executable_file("script.js"));
+        assert!(!is_executable_file("style.css"));
+        assert!(!is_executable_file("README.md"));
+        assert!(!is_executable_file("config.toml"));
+
+        // Test files without extensions
+        assert!(!is_executable_file("filename"));
+        assert!(!is_executable_file("no_extension"));
+
+        // Test empty string and edge cases
+        assert!(!is_executable_file(""));
+        assert!(!is_executable_file("."));
+        assert!(!is_executable_file(".."));
+        assert!(!is_executable_file(".hidden"));
+
+        // Test partial matches that shouldn't work
+        assert!(!is_executable_file("exefile.txt"));
+        assert!(!is_executable_file("not_bat_file.doc"));
     }
 }
