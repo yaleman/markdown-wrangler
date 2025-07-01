@@ -32,6 +32,7 @@ function updatePreview() {
         .replace(/^# (.*$)/gim, '<h1>$1</h1>')
         .replace(/\*\*(.*?)\*\*/gim, '<strong>$1</strong>')
         .replace(/\*(.*?)\*/gim, '<em>$1</em>')
+        .replace(/~~(.*?)~~/gim, '<del>$1</del>')
         .replace(/\[([^\]]+)\]\(([^)]+)\)/gim, '<a href="$2">$1</a>')
         .replace(/`([^`]+)`/gim, '<code>$1</code>')
         .replace(/\n/gim, '<br>');

@@ -74,6 +74,11 @@ textarea {
     overflow-y: auto;
 }
 
+.preview del {
+    text-decoration: line-through;
+    color: #666;
+}
+
 .buttons {
     margin: 20px 0;
 }

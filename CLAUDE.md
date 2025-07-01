@@ -63,7 +63,7 @@ just check            # Run lint and test
 
 ### Web Server
 
-- Listens on port 5420 (0.0.0.0:5420)
+- Listens on port 5420 (127.0.0.1:5420)
 - Routes: `/` returns "Hello World", all other paths return 404 "not found"
 - Includes OpenTelemetry tracing middleware for request monitoring
 - Supports both normal and debug logging modes via --debug flag
@@ -84,11 +84,13 @@ just check            # Run lint and test
 
 ## Quality Assurance
 
-- Your task is not complete unless "just check" passes without warnings or errors
+- Your task is not complete unless "just check" passes without warnings or
+  errors
 
 ## Web Development Best Practices
 
-- Don't use inline javascript or css, use static files and serve them from a /static/ directory
+- Don't use inline javascript or css, use static files and serve them from a
+  /static/ directory
 
 ## JavaScript and Linting
 

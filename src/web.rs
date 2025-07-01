@@ -63,13 +63,13 @@ pub(crate) fn generate_csrf_token(secret: &str) -> String {
         .unwrap()
         .as_secs();
     let nonce: u64 = rand::thread_rng().r#gen();
-    
+
     let payload = format!("{}:{}", timestamp, nonce);
     let mut hasher = Sha256::new();
     hasher.update(payload.as_bytes());
     hasher.update(secret.as_bytes());
     let signature = hex::encode(hasher.finalize());
-    
+
     format!("{}:{}", payload, signature)
 }
 
@@ -78,11 +78,11 @@ pub(crate) fn validate_csrf_token(token: &str, secret: &str) -> bool {
     if parts.len() != 3 {
         return false;
     }
-    
+
     let timestamp_str = parts[0];
     let nonce = parts[1];
     let provided_signature = parts[2];
-    
+
     // Check if token is not too old (1 hour)
     if let Ok(timestamp) = timestamp_str.parse::<u64>() {
         let current_time = SystemTime::now()
@@ -95,13 +95,13 @@ pub(crate) fn validate_csrf_token(token: &str, secret: &str) -> bool {
     } else {
         return false;
     }
-    
+
     let payload = format!("{}:{}", timestamp_str, nonce);
     let mut hasher = Sha256::new();
     hasher.update(payload.as_bytes());
     hasher.update(secret.as_bytes());
     let expected_signature = hex::encode(hasher.finalize());
-    
+
     expected_signature == provided_signature
 }
 
@@ -194,30 +194,30 @@ fn is_markdown_file(path: &str) -> bool {
 
 fn is_image_file(path: &str) -> bool {
     let lower_path = path.to_lowercase();
-    lower_path.ends_with(".jpg") 
-        || lower_path.ends_with(".jpeg") 
-        || lower_path.ends_with(".png") 
-        || lower_path.ends_with(".gif") 
-        || lower_path.ends_with(".webp") 
-        || lower_path.ends_with(".svg") 
-        || lower_path.ends_with(".bmp") 
-        || lower_path.ends_with(".tiff") 
+    lower_path.ends_with(".jpg")
+        || lower_path.ends_with(".jpeg")
+        || lower_path.ends_with(".png")
+        || lower_path.ends_with(".gif")
+        || lower_path.ends_with(".webp")
+        || lower_path.ends_with(".svg")
+        || lower_path.ends_with(".bmp")
+        || lower_path.ends_with(".tiff")
         || lower_path.ends_with(".tif")
 }
 
 fn is_executable_file(path: &str) -> bool {
     let lower_path = path.to_lowercase();
-    lower_path.ends_with(".exe") 
-        || lower_path.ends_with(".bat") 
-        || lower_path.ends_with(".cmd") 
-        || lower_path.ends_with(".com") 
-        || lower_path.ends_with(".scr") 
-        || lower_path.ends_with(".msi") 
-        || lower_path.ends_with(".sh") 
-        || lower_path.ends_with(".ps1") 
-        || lower_path.ends_with(".vbs") 
-        || lower_path.ends_with(".app") 
-        || lower_path.ends_with(".dmg") 
+    lower_path.ends_with(".exe")
+        || lower_path.ends_with(".bat")
+        || lower_path.ends_with(".cmd")
+        || lower_path.ends_with(".com")
+        || lower_path.ends_with(".scr")
+        || lower_path.ends_with(".msi")
+        || lower_path.ends_with(".sh")
+        || lower_path.ends_with(".ps1")
+        || lower_path.ends_with(".vbs")
+        || lower_path.ends_with(".app")
+        || lower_path.ends_with(".dmg")
         || lower_path.ends_with(".pkg")
         || lower_path.ends_with(".deb")
         || lower_path.ends_with(".rpm")
@@ -226,21 +226,21 @@ fn is_executable_file(path: &str) -> bool {
 fn is_safe_for_iframe(path: &str) -> bool {
     let lower_path = path.to_lowercase();
     // Allow text files, web files, and documents that browsers can display safely
-    lower_path.ends_with(".txt") 
-        || lower_path.ends_with(".html") 
-        || lower_path.ends_with(".htm") 
-        || lower_path.ends_with(".css") 
-        || lower_path.ends_with(".js") 
-        || lower_path.ends_with(".json") 
-        || lower_path.ends_with(".xml") 
-        || lower_path.ends_with(".pdf") 
-        || lower_path.ends_with(".csv") 
-        || lower_path.ends_with(".log") 
-        || lower_path.ends_with(".yml") 
-        || lower_path.ends_with(".yaml") 
-        || lower_path.ends_with(".toml") 
-        || lower_path.ends_with(".ini") 
-        || lower_path.ends_with(".conf") 
+    lower_path.ends_with(".txt")
+        || lower_path.ends_with(".html")
+        || lower_path.ends_with(".htm")
+        || lower_path.ends_with(".css")
+        || lower_path.ends_with(".js")
+        || lower_path.ends_with(".json")
+        || lower_path.ends_with(".xml")
+        || lower_path.ends_with(".pdf")
+        || lower_path.ends_with(".csv")
+        || lower_path.ends_with(".log")
+        || lower_path.ends_with(".yml")
+        || lower_path.ends_with(".yaml")
+        || lower_path.ends_with(".toml")
+        || lower_path.ends_with(".ini")
+        || lower_path.ends_with(".conf")
         || lower_path.ends_with(".cfg")
 }
 
@@ -262,12 +262,12 @@ fn format_file_size(size_bytes: u64) -> String {
     const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
     let mut size = size_bytes as f64;
     let mut unit_index = 0;
-    
+
     while size >= 1024.0 && unit_index < UNITS.len() - 1 {
         size /= 1024.0;
         unit_index += 1;
     }
-    
+
     if unit_index == 0 {
         format!("{} {}", size_bytes, UNITS[unit_index])
     } else {
@@ -346,7 +346,7 @@ fn generate_editor_html(file_path: &str, content: &str, csrf_token: &str) -> Str
 
 fn generate_image_preview_html(file_path: &str, file_size: &str) -> String {
     let escaped_path = html_escape::encode_text(file_path);
-    
+
     format!(
         r#"<!DOCTYPE html>
 <html>
@@ -403,7 +403,7 @@ fn generate_image_preview_html(file_path: &str, file_size: &str) -> String {
 fn generate_file_preview_html(file_path: &str, file_size: &str) -> String {
     let escaped_path = html_escape::encode_text(file_path);
     let can_iframe = is_safe_for_iframe(file_path);
-    
+
     let preview_content = if can_iframe {
         format!(
             r#"<div class="file-preview-iframe">
@@ -415,9 +415,10 @@ fn generate_file_preview_html(file_path: &str, file_size: &str) -> String {
         r#"<div class="file-preview-message">
             <p>⚠️ File preview not available for this file type for security reasons.</p>
             <p>This file type cannot be safely displayed in the browser.</p>
-           </div>"#.to_string()
+           </div>"#
+            .to_string()
     };
-    
+
     format!(
         r#"<!DOCTYPE html>
 <html>
@@ -463,21 +464,39 @@ fn generate_file_preview_html(file_path: &str, file_size: &str) -> String {
 
 fn get_file_type_description(file_path: &str) -> &'static str {
     let lower_path = file_path.to_lowercase();
-    
-    if lower_path.ends_with(".txt") { "Text file" }
-    else if lower_path.ends_with(".html") || lower_path.ends_with(".htm") { "HTML document" }
-    else if lower_path.ends_with(".css") { "CSS stylesheet" }
-    else if lower_path.ends_with(".js") { "JavaScript file" }
-    else if lower_path.ends_with(".json") { "JSON data" }
-    else if lower_path.ends_with(".xml") { "XML document" }
-    else if lower_path.ends_with(".pdf") { "PDF document" }
-    else if lower_path.ends_with(".csv") { "CSV data" }
-    else if lower_path.ends_with(".log") { "Log file" }
-    else if lower_path.ends_with(".yml") || lower_path.ends_with(".yaml") { "YAML configuration" }
-    else if lower_path.ends_with(".toml") { "TOML configuration" }
-    else if lower_path.ends_with(".ini") || lower_path.ends_with(".conf") || lower_path.ends_with(".cfg") { "Configuration file" }
-    else if is_executable_file(file_path) { "Executable file" }
-    else { "Unknown file type" }
+
+    if lower_path.ends_with(".txt") {
+        "Text file"
+    } else if lower_path.ends_with(".html") || lower_path.ends_with(".htm") {
+        "HTML document"
+    } else if lower_path.ends_with(".css") {
+        "CSS stylesheet"
+    } else if lower_path.ends_with(".js") {
+        "JavaScript file"
+    } else if lower_path.ends_with(".json") {
+        "JSON data"
+    } else if lower_path.ends_with(".xml") {
+        "XML document"
+    } else if lower_path.ends_with(".pdf") {
+        "PDF document"
+    } else if lower_path.ends_with(".csv") {
+        "CSV data"
+    } else if lower_path.ends_with(".log") {
+        "Log file"
+    } else if lower_path.ends_with(".yml") || lower_path.ends_with(".yaml") {
+        "YAML configuration"
+    } else if lower_path.ends_with(".toml") {
+        "TOML configuration"
+    } else if lower_path.ends_with(".ini")
+        || lower_path.ends_with(".conf")
+        || lower_path.ends_with(".cfg")
+    {
+        "Configuration file"
+    } else if is_executable_file(file_path) {
+        "Executable file"
+    } else {
+        "Unknown file type"
+    }
 }
 
 fn generate_directory_html(entries: &[DirectoryEntry], current_path: &str) -> String {
@@ -642,10 +661,7 @@ async fn save_file(
 ) -> Result<Html<String>, (StatusCode, String)> {
     // Validate CSRF token
     if !validate_csrf_token(&form.csrf_token, &state.csrf_secret) {
-        return Err((
-            StatusCode::FORBIDDEN,
-            "Invalid CSRF token".to_string(),
-        ));
+        return Err((StatusCode::FORBIDDEN, "Invalid CSRF token".to_string()));
     }
 
     if !is_markdown_file(&form.path) {
@@ -938,7 +954,10 @@ async fn get_file_info(
 
     match validate_file_path(&state.target_dir, file_path) {
         Ok(full_path) => {
-            match (get_file_modification_time(&full_path), get_file_size(&full_path)) {
+            match (
+                get_file_modification_time(&full_path),
+                get_file_size(&full_path),
+            ) {
                 (Ok(modified_time), Ok(size)) => {
                     let file_info = FileInfo {
                         modified_time,
@@ -981,7 +1000,10 @@ async fn get_file_content(
 
     match validate_file_path(&state.target_dir, file_path) {
         Ok(full_path) => {
-            match (read_file_content(&full_path), get_file_modification_time(&full_path)) {
+            match (
+                read_file_content(&full_path),
+                get_file_modification_time(&full_path),
+            ) {
                 (Ok(content), Ok(modified_time)) => {
                     let file_content = FileContent {
                         content,
@@ -1011,20 +1033,16 @@ async fn delete_file(
 ) -> Result<Html<String>, (StatusCode, String)> {
     // Validate CSRF token
     if !validate_csrf_token(&form.csrf_token, &state.csrf_secret) {
-        return Err((
-            StatusCode::FORBIDDEN,
-            "Invalid CSRF token".to_string(),
-        ));
+        return Err((StatusCode::FORBIDDEN, "Invalid CSRF token".to_string()));
     }
 
     // Validate the file path
     match validate_file_path(&state.target_dir, &form.path) {
-        Ok(full_path) => {
-            match fs::remove_file(&full_path) {
-                Ok(()) => {
-                    info!("File deleted successfully: {}", form.path);
-                    let success_html = format!(
-                        r#"<!DOCTYPE html>
+        Ok(full_path) => match fs::remove_file(&full_path) {
+            Ok(()) => {
+                info!("File deleted successfully: {}", form.path);
+                let success_html = format!(
+                    r#"<!DOCTYPE html>
 <html>
 <head>
     <title>File Deleted - Markdown Wrangler</title>
@@ -1038,19 +1056,18 @@ async fn delete_file(
     </div>
 </body>
 </html>"#,
-                        html_escape::encode_text(&form.path)
-                    );
-                    Ok(Html(success_html))
-                }
-                Err(err) => {
-                    warn!("File deletion error: {}", err);
-                    Err((
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Error deleting file: {}", err),
-                    ))
-                }
+                    html_escape::encode_text(&form.path)
+                );
+                Ok(Html(success_html))
             }
-        }
+            Err(err) => {
+                warn!("File deletion error: {}", err);
+                Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Error deleting file: {}", err),
+                ))
+            }
+        },
         Err(err) => {
             warn!("File validation error during deletion: {}", err);
             Err((StatusCode::BAD_REQUEST, format!("Error: {}", err)))
@@ -1082,14 +1099,21 @@ fn create_router(state: AppState) -> Router {
 pub async fn start_server(target_dir: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     // Generate a random CSRF secret
     let csrf_secret = hex::encode(rand::thread_rng().r#gen::<[u8; 32]>());
-    let state = AppState { target_dir, csrf_secret };
+    let state = AppState {
+        target_dir,
+        csrf_secret,
+    };
     #[allow(clippy::default_constructed_unit_structs)]
     let app = create_router(state)
         .layer(OtelInResponseLayer::default())
         .layer(OtelAxumLayer::default());
 
-    let listener = TcpListener::bind("0.0.0.0:5420").await?;
-    info!("Web server listening on http://0.0.0.0:5420, press Ctrl+C to stop");
+    let address = "127.0.0.1:5420";
+    let listener = TcpListener::bind(address).await?;
+    info!(
+        "Web server listening on http://{}, press Ctrl+C to stop",
+        address
+    );
 
     axum::serve(listener, app).await?;
 
@@ -1122,11 +1146,11 @@ mod tests {
     fn test_csrf_token_generation() {
         let secret = "test_secret";
         let token = generate_csrf_token(secret);
-        
+
         // Token should have 3 parts separated by colons
         let parts: Vec<&str> = token.split(':').collect();
         assert_eq!(parts.len(), 3);
-        
+
         // All parts should be non-empty
         assert!(!parts[0].is_empty()); // timestamp
         assert!(!parts[1].is_empty()); // nonce
@@ -1137,7 +1161,7 @@ mod tests {
     fn test_csrf_token_validation_valid() {
         let secret = "test_secret";
         let token = generate_csrf_token(secret);
-        
+
         // Valid token should pass validation
         assert!(validate_csrf_token(&token, secret));
     }
@@ -1147,7 +1171,7 @@ mod tests {
         let secret = "test_secret";
         let wrong_secret = "wrong_secret";
         let token = generate_csrf_token(secret);
-        
+
         // Token with wrong secret should fail validation
         assert!(!validate_csrf_token(&token, wrong_secret));
     }
@@ -1155,7 +1179,7 @@ mod tests {
     #[test]
     fn test_csrf_token_validation_malformed() {
         let secret = "test_secret";
-        
+
         // Various malformed tokens should fail validation
         assert!(!validate_csrf_token("", secret));
         assert!(!validate_csrf_token("invalid", secret));
@@ -1167,21 +1191,21 @@ mod tests {
     #[test]
     fn test_csrf_token_validation_expired() {
         let secret = "test_secret";
-        
+
         // Create an expired token (timestamp from 2 hours ago)
         let expired_timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs()
             - 7200; // 2 hours ago
-        
+
         let payload = format!("{}:12345", expired_timestamp);
         let mut hasher = Sha256::new();
         hasher.update(payload.as_bytes());
         hasher.update(secret.as_bytes());
         let signature = hex::encode(hasher.finalize());
         let expired_token = format!("{}:{}", payload, signature);
-        
+
         // Expired token should fail validation
         assert!(!validate_csrf_token(&expired_token, secret));
     }
@@ -1189,7 +1213,7 @@ mod tests {
     #[test]
     fn test_csrf_token_validation_invalid_timestamp() {
         let secret = "test_secret";
-        
+
         // Token with invalid timestamp should fail validation
         let invalid_token = "invalid_timestamp:12345:signature";
         assert!(!validate_csrf_token(invalid_token, secret));
@@ -1198,11 +1222,11 @@ mod tests {
     #[tokio::test]
     async fn test_save_endpoint_without_csrf_token() {
         let (app, temp_dir, _) = create_test_app().await;
-        
+
         // Create a test markdown file
         let test_file = temp_dir.path().join("test.md");
         std::fs::write(&test_file, "# Test").unwrap();
-        
+
         // Try to save without CSRF token
         let request = Request::builder()
             .method(Method::POST)
@@ -1210,9 +1234,9 @@ mod tests {
             .header("content-type", "application/x-www-form-urlencoded")
             .body(Body::from("path=test.md&content=# Updated Content"))
             .unwrap();
-        
+
         let response = app.oneshot(request).await.unwrap();
-        
+
         // Should return 422 Unprocessable Entity due to missing CSRF token
         assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
     }
@@ -1220,21 +1244,23 @@ mod tests {
     #[tokio::test]
     async fn test_save_endpoint_with_invalid_csrf_token() {
         let (app, temp_dir, _) = create_test_app().await;
-        
+
         // Create a test markdown file
         let test_file = temp_dir.path().join("test.md");
         std::fs::write(&test_file, "# Test").unwrap();
-        
+
         // Try to save with invalid CSRF token
         let request = Request::builder()
             .method(Method::POST)
             .uri("/save")
             .header("content-type", "application/x-www-form-urlencoded")
-            .body(Body::from("path=test.md&content=# Updated Content&csrf_token=invalid"))
+            .body(Body::from(
+                "path=test.md&content=# Updated Content&csrf_token=invalid",
+            ))
             .unwrap();
-        
+
         let response = app.oneshot(request).await.unwrap();
-        
+
         // Should return 403 Forbidden due to invalid CSRF token
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
@@ -1242,30 +1268,32 @@ mod tests {
     #[tokio::test]
     async fn test_save_endpoint_with_valid_csrf_token() {
         let (app, temp_dir, csrf_secret) = create_test_app().await;
-        
+
         // Create a test markdown file
         let test_file = temp_dir.path().join("test.md");
         std::fs::write(&test_file, "# Test").unwrap();
-        
+
         // Generate valid CSRF token
         let csrf_token = generate_csrf_token(&csrf_secret);
-        
+
         // Save with valid CSRF token
-        let body = format!("path=test.md&content=# Updated Content&csrf_token={}", 
-                          urlencoding::encode(&csrf_token));
-        
+        let body = format!(
+            "path=test.md&content=# Updated Content&csrf_token={}",
+            urlencoding::encode(&csrf_token)
+        );
+
         let request = Request::builder()
             .method(Method::POST)
             .uri("/save")
             .header("content-type", "application/x-www-form-urlencoded")
             .body(Body::from(body))
             .unwrap();
-        
+
         let response = app.oneshot(request).await.unwrap();
-        
+
         // Should succeed
         assert_eq!(response.status(), StatusCode::OK);
-        
+
         // Verify file content was updated
         let content = std::fs::read_to_string(&test_file).unwrap();
         assert_eq!(content, "# Updated Content");
@@ -1274,11 +1302,11 @@ mod tests {
     #[tokio::test]
     async fn test_delete_endpoint_without_csrf_token() {
         let (app, temp_dir, _) = create_test_app().await;
-        
+
         // Create a test markdown file
         let test_file = temp_dir.path().join("test.md");
         std::fs::write(&test_file, "# Test").unwrap();
-        
+
         // Try to delete without CSRF token
         let request = Request::builder()
             .method(Method::POST)
@@ -1286,12 +1314,12 @@ mod tests {
             .header("content-type", "application/x-www-form-urlencoded")
             .body(Body::from("path=test.md"))
             .unwrap();
-        
+
         let response = app.oneshot(request).await.unwrap();
-        
+
         // Should return 422 Unprocessable Entity due to missing CSRF token
         assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
-        
+
         // File should still exist
         assert!(test_file.exists());
     }
@@ -1299,30 +1327,32 @@ mod tests {
     #[tokio::test]
     async fn test_delete_endpoint_with_valid_csrf_token() {
         let (app, temp_dir, csrf_secret) = create_test_app().await;
-        
+
         // Create a test markdown file
         let test_file = temp_dir.path().join("test.md");
         std::fs::write(&test_file, "# Test").unwrap();
-        
+
         // Generate valid CSRF token
         let csrf_token = generate_csrf_token(&csrf_secret);
-        
+
         // Delete with valid CSRF token
-        let body = format!("path=test.md&csrf_token={}", 
-                          urlencoding::encode(&csrf_token));
-        
+        let body = format!(
+            "path=test.md&csrf_token={}",
+            urlencoding::encode(&csrf_token)
+        );
+
         let request = Request::builder()
             .method(Method::POST)
             .uri("/delete")
             .header("content-type", "application/x-www-form-urlencoded")
             .body(Body::from(body))
             .unwrap();
-        
+
         let response = app.oneshot(request).await.unwrap();
-        
+
         // Should succeed
         assert_eq!(response.status(), StatusCode::OK);
-        
+
         // File should be deleted
         assert!(!test_file.exists());
     }
@@ -1330,28 +1360,28 @@ mod tests {
     #[tokio::test]
     async fn test_edit_page_contains_csrf_token() {
         let (app, temp_dir, _) = create_test_app().await;
-        
+
         // Create a test markdown file
         let test_file = temp_dir.path().join("test.md");
         std::fs::write(&test_file, "# Test Content").unwrap();
-        
+
         // Request the edit page
         let request = Request::builder()
             .method(Method::GET)
             .uri("/edit?path=test.md")
             .body(Body::empty())
             .unwrap();
-        
+
         let response = app.oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        
+
         // Get response body
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let html = String::from_utf8(body.to_vec()).unwrap();
-        
+
         // Verify CSRF token is present in both forms
         assert!(html.contains(r#"name="csrf_token""#));
-        
+
         // Should have at least 2 CSRF token fields (save form and delete form)
         let csrf_count = html.matches(r#"name="csrf_token""#).count();
         assert_eq!(csrf_count, 2);
@@ -1360,17 +1390,17 @@ mod tests {
     #[test]
     fn test_csrf_tokens_are_unique() {
         let secret = "test_secret";
-        
+
         // Generate multiple tokens
         let token1 = generate_csrf_token(secret);
         let token2 = generate_csrf_token(secret);
         let token3 = generate_csrf_token(secret);
-        
+
         // All tokens should be different (due to timestamp and nonce)
         assert_ne!(token1, token2);
         assert_ne!(token2, token3);
         assert_ne!(token1, token3);
-        
+
         // But all should validate with the same secret
         assert!(validate_csrf_token(&token1, secret));
         assert!(validate_csrf_token(&token2, secret));
