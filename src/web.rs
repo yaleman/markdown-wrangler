@@ -66,7 +66,7 @@ pub(crate) fn generate_csrf_token(secret: &str) -> String {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_secs();
-    let nonce: u64 = rand::thread_rng().r#gen();
+    let nonce: u64 = rand::rng().random();
 
     let payload = format!("{timestamp}:{nonce}");
     let mut hasher = Sha256::new();
@@ -1094,7 +1094,7 @@ fn create_router(state: AppState) -> Router {
 
 pub async fn start_server(target_dir: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     // Generate a random CSRF secret
-    let csrf_secret = hex::encode(rand::thread_rng().r#gen::<[u8; 32]>());
+    let csrf_secret = hex::encode(rand::rng().random::<[u8; 32]>());
     let state = AppState {
         target_dir,
         csrf_secret,
