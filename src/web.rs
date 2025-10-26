@@ -9,7 +9,6 @@ use axum::{
     response::{Html, Json},
     routing::{get, post},
 };
-use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -1100,10 +1099,7 @@ pub async fn start_server(target_dir: PathBuf) -> Result<(), Box<dyn std::error:
         target_dir,
         csrf_secret,
     };
-    #[allow(clippy::default_constructed_unit_structs)]
-    let app = create_router(state)
-        .layer(OtelInResponseLayer::default())
-        .layer(OtelAxumLayer::default());
+    let app = create_router(state);
 
     let address = "127.0.0.1:5420";
     let listener = TcpListener::bind(address).await?;
