@@ -33,10 +33,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "pnpm"
 
       - name: Install JavaScript dependencies
-        run: pnpm ci
+        run: npm -i pnpm && pnpm ci
 
       - name: Install just
         run: cargo install just
