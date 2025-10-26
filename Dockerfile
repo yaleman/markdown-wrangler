@@ -37,5 +37,7 @@ COPY static ./static
 # Expose port
 EXPOSE 5420
 
+USER nonroot:nonroot
+
 # Set the binary as entrypoint
 ENTRYPOINT ["/app/markdown-wrangler"]

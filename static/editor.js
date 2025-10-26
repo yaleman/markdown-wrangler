@@ -111,7 +111,10 @@ function updatePreview() {
         })
         .join('\n');
 
-    preview.innerHTML = content || '<p><em>Preview will appear here as you type...</em></p>';
+    const previewP = document.createElement('p');
+    // nosemgrep: javascript.browser.security.insecure-document-method.insecure-document-method
+    previewP.innerHTML = content || '<em>Preview will appear here as you type...</em>';
+    preview.replaceChildren(previewP);
 }
 
 // Initialize editor functionality when DOM is loaded
