@@ -27,7 +27,7 @@ sha2 = "0.10.9"
 tokio = { version = "1.47.1", features = ["full", "tracing"] }
 tower-http = { version = "0.6.6", features = ["fs"] }
 tracing = "0.1.41"
-tracing-opentelemetry = { version = "0.31.0", features = ["metrics"] }
+tracing-opentelemetry = { version = "0.32.0", features = ["metrics"] }
 tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
 urlencoding = "2.1.3"
 
