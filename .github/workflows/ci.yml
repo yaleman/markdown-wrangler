@@ -34,8 +34,14 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Install JavaScript dependencies
-        run: npm -ig pnpm && pnpm ci
+      - name: "Install pnpm"
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: true
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+      - name: Run compile
+        run: pnpm run build
 
       - name: Install just
         run: cargo install just
@@ -44,7 +50,7 @@ jobs:
         run: just check
 
       - name: Check JavaScript formatting
-        run: npx prettier --check static/*.js
+        run: pnpm check
 
   docker-build:
     runs-on: ubuntu-latest
