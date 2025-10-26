@@ -34,7 +34,7 @@ cd markdown-wrangler
 
 2. Install JavaScript dependencies:
 ```bash
-npm install
+pnpm install
 ```
 
 3. Install Rust dependencies (automatically handled by cargo):

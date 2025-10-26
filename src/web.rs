@@ -214,7 +214,8 @@ fn is_executable_file(path: &str) -> bool {
 }
 
 const IFRAME_SAFE_EXTENSIONS: &[&str] = &[
-    "txt", "html", "htm", "css", "js", "json", "xml", "pdf", "csv", "log", "yml", "yaml", "toml", "ini", "conf", "cfg",
+    "txt", "html", "htm", "css", "js", "json", "xml", "pdf", "csv", "log", "yml", "yaml", "toml",
+    "ini", "conf", "cfg",
 ];
 
 fn is_safe_for_iframe(path: &str) -> bool {

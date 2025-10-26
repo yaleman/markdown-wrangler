@@ -5,94 +5,149 @@ code in this repository.
 
 ## Project Overview
 
-- Web interface to manage websites stored as folder structures of markdown files
-- Designed to be compatible with Hugo and Zola static site generators
-- Written in Rust using Cargo 2024 edition
-- Uses justfile for task automation
+Markdown Wrangler is a web-based content management interface for markdown files, designed for Hugo and Zola static site generators. It provides a live-preview editor, file browser, and secure file operations with CSRF protection.
+
+**Tech Stack:**
+- Rust (Cargo 2024 edition, requires nightly toolchain)
+- Tokio async runtime
+- Axum web framework
+- JavaScript (vanilla) for client-side functionality
 
 ## Development Commands
 
-### Build and Run
+### Essential Commands
 
 ```bash
-cargo build          # Build the project
-cargo run            # Run the application
-cargo check          # Fast compile check
+just check            # Run all quality checks (lint + test) - REQUIRED before commits
+cargo run             # Start dev server on http://localhost:5420
+cargo run -- --debug  # Run with debug logging
+cargo run -- /path/to/content  # Run with custom content directory
+cargo test            # Run all tests
+cargo test test_name  # Run a single test
 ```
 
 ### Code Quality
 
 ```bash
-cargo clippy          # Linting
-cargo fmt             # Code formatting
-cargo test            # Run tests
+just clippy           # Rust linting (treats warnings as errors)
+just test             # Run Rust test suite
+just fmt              # Check Rust formatting
+pnpm run lint         # Lint JavaScript files (eslint)
 ```
 
-### Using Just
+### Docker
 
 ```bash
-just                  # Show available tasks
-just --list           # List all tasks
-just lint             # Run cargo clippy --all-targets
-just test             # Run cargo test
-just check            # Run lint and test
+just docker_build     # Build multi-platform Docker container
 ```
 
-## Architecture Notes
+## Architecture
 
-### Project Structure
+### Application Flow
 
-- `src/main.rs` - Application entry point with async runtime and module
-  orchestration
-- `src/cli.rs` - Command line argument parsing using clap
-- `src/log_wrangler.rs` - Tracing and OpenTelemetry initialization
-- `src/web.rs` - Axum web server with HTTP routing and middleware
+1. **CLI parsing** (`src/cli.rs`) - Validates target directory path
+2. **Tracing initialization** (`src/log_wrangler.rs`) - Sets up OpenTelemetry
+3. **Web server** (`src/web.rs`) - Starts Axum on 127.0.0.1:5420
 
-### Key Dependencies
+### Security Architecture
 
-- **tokio** - Async runtime with full features and tracing support
-- **axum** - Web framework for HTTP server functionality
-- **clap** - CLI argument parsing with derive features
-- **tracing ecosystem** - Structured logging and OpenTelemetry integration
-  - `tracing` - Core tracing library
-  - `tracing-subscriber` - Subscriber implementations with env-filter
-  - `tracing-opentelemetry` - OpenTelemetry integration with metrics
-  - `axum-tracing-opentelemetry` - Axum middleware for request tracing
-- **askama** - HTML templating with serde_json support
-- **serde** - Serialization framework with derive macros
+**CSRF Protection:**
+- All state-changing operations (save, delete) require CSRF tokens
+- Tokens are HMAC-SHA256 signed with a random secret generated at startup
+- Tokens expire after 1 hour (3600 seconds)
+- Token format: `{timestamp}:{nonce}:{signature}`
+- See `generate_csrf_token()` and `validate_csrf_token()` in `src/web.rs`
 
-### Web Server
+**File Safety:**
+- Path traversal prevention via `canonicalize()` checks
+- Executable files blocked from preview/serving
+- Iframe preview limited to safe file types (txt, html, css, js, json, xml, pdf, csv, config files)
+- Static file lists in constants: `IMAGE_EXTENSIONS`, `EXECUTABLE_EXTENSIONS`, `IFRAME_SAFE_EXTENSIONS`
 
-- Listens on port 5420 (127.0.0.1:5420)
-- Routes: `/` returns "Hello World", all other paths return 404 "not found"
-- Includes OpenTelemetry tracing middleware for request monitoring
-- Supports both normal and debug logging modes via --debug flag
+### Key Functions in `src/web.rs`
 
-### Static Site Generator Compatibility
+**Route Handlers:**
+- `index()` - Directory browser with breadcrumb navigation
+- `edit_file()` - Markdown editor (GET /edit?path=...)
+- `save_file()` - Save with CSRF validation, skips write if content unchanged
+- `delete_file()` - Delete with CSRF validation
+- `preview_image()` - Image preview page
+- `serve_image()` - Serve image files with proper MIME types
+- `preview_file()` - Generic file preview for non-markdown/non-image files
+- `serve_file()` - Serve safe file types in iframes
+- `get_file_info()` - JSON API for file metadata
+- `get_file_content()` - JSON API for file content (markdown only)
 
-- Intended to support both Hugo and Zola static site generator formats
+**Security Helpers:**
+- `validate_file_path()` - Canonicalization and boundary checks
+- `is_markdown_file()` - .md/.markdown extension check
+- `is_image_file()` - Image extension validation
+- `is_executable_file()` - Executable detection
+- `is_safe_for_iframe()` - Whitelist check for iframe previews
+
+**HTML Generation:**
+- All HTML is generated server-side (no templates currently)
+- Functions: `generate_editor_html()`, `generate_directory_html()`, `generate_image_preview_html()`, `generate_file_preview_html()`
+- Uses `html_escape` crate to prevent XSS
+
+### Static Assets
+
+Located in `/static/` directory:
+- `editor.js` - Markdown live preview rendering
+- `editor-storage.js` - LocalStorage draft management
+- `delete.js` - Delete confirmation dialogs
+- `styles.css` - Application styles
+
+## Testing Strategy
+
+**Comprehensive CSRF test coverage:**
+- Token generation uniqueness
+- Token validation (valid, invalid, expired, malformed)
+- Protected endpoints reject missing/invalid tokens
+- Edit page contains CSRF tokens in forms
+
+**Integration tests use:**
+- `tempfile::TempDir` for isolated test directories
+- `tower::ServiceExt::oneshot()` for request testing
+- Test helper: `create_test_app()` returns `(Router, TempDir, csrf_secret)`
+
+**Run single test:**
+```bash
+cargo test test_csrf_token_validation -- --nocapture
+```
 
 ## Development Guidelines
 
-- Tasks aren't done until "just check" passes
-- When your work is done on a request, you must commit it to git
-- Seriously it's mandatory to git commit things at the end of your task
+- **Mandatory:** Run `just check` before commits (no warnings/errors allowed)
+- **Mandatory:** Commit completed work to git
+- Use cargo commands for Cargo.toml changes (not manual edits)
+- Keep CLAUDE.md updated with architecture changes
+- JavaScript must be linted with eslint
+- No inline JavaScript/CSS - use `/static/` files
 
-## Testing
+## File Type Handling
 
-- Add test coverage for sensible paths on any new code
+**Markdown files (.md, .markdown):**
+- Route to editor with live preview
+- Can be saved and deleted
 
-## Quality Assurance
+**Image files (jpg, jpeg, png, gif, webp, svg, bmp, tiff, tif):**
+- Route to image preview with dimensions/metadata
+- Served with correct MIME types
 
-- Your task is not complete unless "just check" passes without warnings or
-  errors
+**Safe files (txt, html, css, js, json, xml, pdf, csv, yml, yaml, toml, ini, conf, cfg):**
+- Route to file preview with iframe (if safe)
+- Sandboxed iframe with `allow-same-origin`
 
-## Web Development Best Practices
+**Executable files (exe, bat, cmd, com, scr, msi, sh, ps1, vbs, app, dmg, pkg, deb, rpm):**
+- Display in browser but not clickable
+- Blocked from preview/serving
 
-- Don't use inline javascript or css, use static files and serve them from a
-  /static/ directory
+## Common Pitfalls
 
-## JavaScript and Linting
-
-- eslint is what I use for javascript linting
-- prettier is what I use for javascript formatting
+- Don't modify `Cargo.toml` manually - use `cargo add/remove`
+- CSRF tokens must be URL-encoded in form submissions
+- File paths must be validated through `validate_file_path()` before use
+- Always use `canonicalize()` for path security checks
+- JavaScript linting uses pnpm, not npm
+- Server binds to localhost only (127.0.0.1) - not accessible externally
