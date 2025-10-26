@@ -35,7 +35,7 @@ jobs:
           node-version: "20"
 
       - name: Install JavaScript dependencies
-        run: npm -i pnpm && pnpm ci
+        run: npm -ig pnpm && pnpm ci
 
       - name: Install just
         run: cargo install just
