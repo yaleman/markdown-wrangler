@@ -67,8 +67,8 @@ jobs:
           load: ${{ github.event_name == 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: ${{ github.event_name != 'pull_request' && 'type=registry,ref=ghcr.io/${{ env.IMAGE_NAME }}:buildcache' || '' }}
-          cache-to: ${{ github.event_name != 'pull_request' && 'type=registry,ref=ghcr.io/${{ env.IMAGE_NAME }}:buildcache,mode=max' || '' }}
+          cache-from: ${{ github.event_name == 'pull_request' && '' || 'type=registry,ref=ghcr.io/${{ env.IMAGE_NAME }}:buildcache'  }}
+          cache-to: ${{ github.event_name == 'pull_request' && '' || 'type=registry,ref=ghcr.io/${{ env.IMAGE_NAME }}:buildcache,mode=max' }}
           provenance: false
       - name: Test run it
         if: ${{ github.ref != 'refs/heads/main' }}
