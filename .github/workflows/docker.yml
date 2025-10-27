@@ -65,6 +65,10 @@ jobs:
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
           cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
           provenance: false
+      - name: Test run it
+        if: ${{ github.ref != 'refs/heads/main' }}
+        run: |
+          docker run --rm ${{ steps.meta.outputs.tags }} echo "Docker image run successful"
 
       - name: Generate artifact attestation
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
