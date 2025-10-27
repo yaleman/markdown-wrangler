@@ -62,13 +62,13 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
           push: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
-          load: ${{ github.ref != 'refs/heads/main' }}
+          load: ${{ github.event_name == 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
-          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
+          cache-from: ${{ github.event_name != 'pull_request' && 'type=registry,ref=ghcr.io/${{ env.IMAGE_NAME }}:buildcache' || '' }}
+          cache-to: ${{ github.event_name != 'pull_request' && 'type=registry,ref=ghcr.io/${{ env.IMAGE_NAME }}:buildcache,mode=max' || '' }}
           provenance: false
       - name: Test run it
         if: ${{ github.ref != 'refs/heads/main' }}
