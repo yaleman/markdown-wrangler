@@ -75,3 +75,6 @@ serve_docs:
 @semgrep *args='':
     semgrep ci --config auto \
     --exclude-rule "yaml.github-actions.security.third-party-action-not-pinned-to-commit-sha.third-party-action-not-pinned-to-commit-sha" $@
+
+lint_js:
+    pnpm eslint static/*.js

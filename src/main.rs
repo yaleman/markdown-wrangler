@@ -8,6 +8,7 @@ mod web;
 
 use cli::Cli;
 use log_wrangler::{init_tracing, log_startup};
+use tokio::signal::unix::{SignalKind, signal};
 use tracing::info;
 use web::start_server;
 
@@ -21,12 +22,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(1);
     }
 
-    init_tracing(cli.debug)?;
+    let mut hangup_waiter = signal(SignalKind::hangup())?;
+    let tracing_provider = init_tracing(cli.debug)?;
     log_startup(cli.debug);
 
     info!("Watching directory: {}", cli.target_dir.display());
 
-    start_server(cli.target_dir).await?;
+    tokio::select! {
+        err = start_server(cli.target_dir) => {
+            if let Err(err) = err {
+                eprintln!("Server error, shutting down. Error: {err}");
+            }
+        },
+        _ = hangup_waiter.recv() => {
+            info!("Received SIGHUP, shutting down.");
+        }
+        _ = tokio::signal::ctrl_c() => {
+            info!("Received Ctrl-C, shutting down.");
+        }
+    }
+    if let Err(err) = tracing_provider.shutdown() {
+        eprintln!("Error shutting down tracing provider: {err}");
+    }
 
     Ok(())
 }

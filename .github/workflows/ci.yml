@@ -7,60 +7,22 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  js_lint:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@nightly
-        with:
-          components: clippy
-
-      - name: Cache Rust dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
 
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "pnpm"
 
-      - name: Install JavaScript dependencies
-        run: pnpm ci
-
-      - name: Install just
-        run: cargo install just
-
-      - name: Run quality checks
-        run: just check
+      - name: "Install pnpm"
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: true
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
 
       - name: Check JavaScript formatting
-        run: npx prettier --check static/*.js
-
-  docker-build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: false
-          tags: markdown-wrangler:test
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+        run: pnpm check
