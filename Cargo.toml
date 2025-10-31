@@ -15,7 +15,7 @@ askama = { version = "0.14.0", features = ["serde_json"] }
 askama_web = { version = "0.14.6", features = ["axum-0.8"] }
 axum = "0.8.6"
 axum-tracing-opentelemetry = "0.32.1"
-clap = { version = "4.5.50", features = ["derive"] }
+clap = { version = "4.5.51", features = ["derive"] }
 hex = "0.4.3"
 html-escape = "0.2.13"
 opentelemetry = "0.31.0"
