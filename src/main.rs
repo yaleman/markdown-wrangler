@@ -2,15 +2,11 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-mod cli;
-mod log_wrangler;
-mod web;
-
-use cli::Cli;
-use log_wrangler::{init_tracing, log_startup};
+use markdown_wrangler::cli::Cli;
+use markdown_wrangler::logging::{init_tracing, log_startup};
+use markdown_wrangler::web::start_server;
 use tokio::signal::unix::{SignalKind, signal};
 use tracing::info;
-use web::start_server;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -23,7 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let mut hangup_waiter = signal(SignalKind::hangup())?;
-    let tracing_provider = init_tracing(cli.debug)?;
+    let tracing_provider = init_tracing(cli.enable_otel_logs, cli.debug)?;
     log_startup(cli.debug);
 
     info!("Watching directory: {}", cli.target_dir.display());

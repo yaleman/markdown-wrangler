@@ -18,6 +18,9 @@ pub struct Cli {
         value_name = "DIR"
     )]
     pub target_dir: PathBuf,
+
+    #[arg(long, help = "Enable OpenTelemetry logging export")]
+    pub enable_otel_logs: bool,
 }
 
 impl Cli {

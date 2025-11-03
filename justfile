@@ -78,3 +78,16 @@ serve_docs:
 
 lint_js:
     pnpm eslint static/*.js
+
+
+jaeger:
+    docker run --rm --name jaeger \
+        -d \
+        -p 16686:16686 \
+        -p 4317:4317 \
+        -p 4318:4318 \
+        -p 5778:5778 \
+        -p 9411:9411 \
+        --platform linux/amd64 \
+        cr.jaegertracing.io/jaegertracing/jaeger:2.11.0
+    echo "Jaeger UI should be at http://localhost:16686"

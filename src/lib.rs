@@ -1,2 +1,3 @@
 pub mod cli;
-pub mod log_wrangler;
+pub mod logging;
+pub mod web;
