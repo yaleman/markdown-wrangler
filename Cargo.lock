@@ -69,19 +69,6 @@ checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
 
 [[package]]
 name = "askama"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f75363874b771be265f4ffe307ca705ef6f3baa19011c149da8674a87f1b75c4"
-dependencies = [
- "askama_derive 0.14.0",
- "itoa",
- "percent-encoding",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "askama"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "21c01049339e624573a8027fe9392219f64d315a0ad24712b469611b3138f042"
@@ -95,25 +82,11 @@ dependencies = [
 
 [[package]]
 name = "askama_derive"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "129397200fe83088e8a68407a8e2b1f826cf0086b21ccdb866a722c8bcd3a94f"
-dependencies = [
- "askama_parser 0.14.0",
- "memchr",
- "proc-macro2",
- "quote",
- "rustc-hash",
- "syn",
-]
-
-[[package]]
-name = "askama_derive"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e393a25182a000666df345c2bdaa9ab6b0c243974ec7d29e377d6feea651778d"
 dependencies = [
- "askama_parser 0.15.0",
+ "askama_parser",
  "basic-toml",
  "memchr",
  "proc-macro2",
@@ -130,17 +103,7 @@ version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e8bb77385d2954705452516f99511835be34b4c4a15a70800623b91406b1db9"
 dependencies = [
- "askama_derive 0.15.0",
-]
-
-[[package]]
-name = "askama_parser"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6ab5630b3d5eaf232620167977f95eb51f3432fc76852328774afbd242d4358"
-dependencies = [
- "memchr",
- "winnow",
+ "askama_derive",
 ]
 
 [[package]]
@@ -158,11 +121,11 @@ dependencies = [
 
 [[package]]
 name = "askama_web"
-version = "0.14.7"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1acadd534892f9ef8c3809b47997e3cd857fad735edceff77a88be1c8236920"
+checksum = "c0d6576f8e59513752a3e2673ca602fb403be7d0d0aacba5cd8b219838ab58fe"
 dependencies = [
- "askama 0.14.0",
+ "askama",
  "askama_web_derive",
  "axum-core",
  "bytes",
@@ -171,9 +134,9 @@ dependencies = [
 
 [[package]]
 name = "askama_web_derive"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34921de3d57974069bad483fdfe0ec65d88c4ff892edd1ab4d8b03be0dda1b9b"
+checksum = "9767c17d33a63daf6da5872ffaf2ab0c289cd73ce7ed4f41d5ddf9149c004873"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -915,7 +878,7 @@ checksum = "34080505efa8e45a4b816c349525ebe327ceaa8559756f0356cba97ef3bf7432"
 name = "markdown-wrangler"
 version = "0.1.0"
 dependencies = [
- "askama 0.15.0",
+ "askama",
  "askama_web",
  "axum",
  "axum-tracing-opentelemetry",
