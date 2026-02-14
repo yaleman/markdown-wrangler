@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Markdown Wrangler - Directory Browser</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body style="margin: 40px;">
+    <h1>📁 Markdown Wrangler</h1>
+    <div class="breadcrumb">
+        📍 Path:
+        {% if at_root %}
+        <strong>/</strong>
+        {% else %}
+        <a href="/">root</a>
+        {% for crumb in breadcrumbs %}
+         / <a href="{{ crumb.url }}">{{ crumb.name }}</a>
+        {% endfor %}
+        {% endif %}
+    </div>
+
+    {% if has_parent %}
+    <div class="entry"><a href="{{ parent_url }}">📁 <span class="directory">..</span></a></div>
+    {% endif %}
+
+    {% for entry in entries %}
+    <div class="entry">
+        {% if entry.has_url %}
+        <a href="{{ entry.url }}"><span class="icon">{{ entry.icon }}</span><span class="{{ entry.class_name }}">{{
+                entry.name }}</span></a>
+        {% else %}
+        <span class="icon">{{ entry.icon }}</span><span class="{{ entry.class_name }}{% if entry.executable %} executable{% endif %}">{{
+                entry.name }}</span>{% if entry.executable %} <small>(executable)</small>{% endif %}
+        {% endif %}
+    </div>
+    {% endfor %}
+</body>
+</html>

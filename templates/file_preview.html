@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Markdown Wrangler - File Preview: {{ file_path }}</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <h1>📄 File Preview</h1>
+    <div class="breadcrumb">
+        <a href="/">← Back to file browser</a> | 📄 {{ file_path }}
+    </div>
+
+    <div class="file-preview-container">
+        {% if can_iframe %}
+        <div class="file-preview-iframe">
+            <iframe src="/file?path={{ encoded_path }}" frameborder="0" sandbox="allow-same-origin"></iframe>
+        </div>
+        {% else %}
+        <div class="file-preview-message">
+            <p>⚠️ File preview not available for this file type for security reasons.</p>
+            <p>This file type cannot be safely displayed in the browser.</p>
+        </div>
+        {% endif %}
+        <div class="file-info">
+            <h3>📄 File Information</h3>
+            <p><strong>File:</strong> {{ file_path }}</p>
+            <p><strong>Size:</strong> {{ file_size }}</p>
+            <p><strong>Type:</strong> {{ file_type }}</p>
+        </div>
+    </div>
+
+    <div class="buttons">
+        <button onclick="window.location.href='{{ parent_path }}'">📁 Back to Files</button>
+        <button class="delete-btn" onclick="confirmDelete('{{ file_path }}')">🗑️ Delete File</button>
+    </div>
+
+    <form id="deleteForm" method="post" action="/delete" style="display: none;">
+        <input type="hidden" name="path" value="{{ file_path }}" />
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    </form>
+
+    <script src="/static/delete.js"></script>
+</body>
+</html>

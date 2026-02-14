@@ -2,6 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+use askama::Template;
 use axum::{
     Router,
     extract::{Form, Query, State},
@@ -33,6 +34,75 @@ struct DirectoryEntry {
     name: String,
     is_directory: bool,
     path: String,
+}
+
+#[derive(Debug)]
+struct Breadcrumb {
+    name: String,
+    url: String,
+}
+
+#[derive(Debug)]
+struct DirectoryEntryView {
+    icon: &'static str,
+    class_name: &'static str,
+    name: String,
+    url: String,
+    has_url: bool,
+    executable: bool,
+}
+
+#[derive(Template)]
+#[template(path = "directory.html")]
+struct DirectoryTemplate {
+    at_root: bool,
+    breadcrumbs: Vec<Breadcrumb>,
+    has_parent: bool,
+    parent_url: String,
+    entries: Vec<DirectoryEntryView>,
+}
+
+#[derive(Template)]
+#[template(path = "editor.html")]
+struct EditorTemplate {
+    file_path: String,
+    content: String,
+    csrf_token: String,
+}
+
+#[derive(Template)]
+#[template(path = "image_preview.html")]
+struct ImagePreviewTemplate {
+    file_path: String,
+    encoded_path: String,
+    file_size: String,
+    parent_path: String,
+    csrf_token: String,
+}
+
+#[derive(Template)]
+#[template(path = "file_preview.html")]
+struct FilePreviewTemplate {
+    file_path: String,
+    encoded_path: String,
+    file_size: String,
+    file_type: String,
+    parent_path: String,
+    csrf_token: String,
+    can_iframe: bool,
+}
+
+#[derive(Template)]
+#[template(path = "status_page.html")]
+struct StatusPageTemplate {
+    title: String,
+    heading: String,
+    heading_class: String,
+    file_path: String,
+    detail_text: String,
+    show_edit_button: bool,
+    edit_url: String,
+    back_url: String,
 }
 
 #[derive(Deserialize)]
@@ -278,180 +348,55 @@ fn get_file_modification_time(file_path: &Path) -> Result<String, String> {
         .map_err(|e| format!("Failed to get file modification time: {e}"))
 }
 
-fn generate_editor_html(file_path: &str, content: &str, csrf_token: &str) -> String {
-    let escaped_content = html_escape::encode_text(content);
-    let escaped_path = html_escape::encode_text(file_path);
-    let escaped_csrf_token = html_escape::encode_text(csrf_token);
-
-    format!(
-        r#"<!DOCTYPE html>
-<html>
-<head>
-    <title>Markdown Wrangler - Edit {file_path}</title>
-    <link rel="stylesheet" href="/static/styles.css">
-</head>
-<body>
-    <h1>📝 Edit Markdown File</h1>
-    <div class="breadcrumb">
-        <a href="/">← Back to file browser</a> | 📄 {escaped_path}
-    </div>
-    
-    <form method="post" action="/save">
-        <input type="hidden" name="path" value="{escaped_path}" />
-        <input type="hidden" name="csrf_token" value="{escaped_csrf_token}" />
-        <div class="buttons">
-            <button type="submit">💾 Save File</button>
-            <button type="button" class="cancel" onclick="window.location.href='/'">❌ Cancel</button>
-            <button type="button" class="delete-btn" onclick="confirmDelete('{escaped_path}')">🗑️ Delete File</button>
-        </div>
-        
-        <div class="editor-container">
-            <div class="editor-panel">
-                <h3>📝 Editor</h3>
-                <textarea name="content" placeholder="Enter your markdown content here...">{escaped_content}</textarea>
-            </div>
-            <div class="editor-panel">
-                <h3>👁️ Preview</h3>
-                <div class="preview" id="preview">
-                    <p><em>Preview will appear here as you type...</em></p>
-                </div>
-            </div>
-        </div>
-    </form>
-    
-    <form id="deleteForm" method="post" action="/delete" style="display: none;">
-        <input type="hidden" name="path" value="{escaped_path}" />
-        <input type="hidden" name="csrf_token" value="{escaped_csrf_token}" />
-    </form>
-
-    <script src="/static/editor.js"></script>
-    <script src="/static/editor-storage.js"></script>
-    <script src="/static/delete.js"></script>
-</body>
-</html>"#
-    )
+fn render_template<T: Template>(template: &T) -> Result<String, String> {
+    template
+        .render()
+        .map_err(|e| format!("Failed to render template: {e}"))
 }
 
-fn generate_image_preview_html(file_path: &str, file_size: &str) -> String {
-    let escaped_path = html_escape::encode_text(file_path);
-    let parent_path = get_parent_directory_path(file_path);
-
-    format!(
-        r#"<!DOCTYPE html>
-<html>
-<head>
-    <title>Markdown Wrangler - Image Preview: {file_path}</title>
-    <link rel="stylesheet" href="/static/styles.css">
-</head>
-<body>
-    <h1>🖼️ Image Preview</h1>
-    <div class="breadcrumb">
-        <a href="/">← Back to file browser</a> | 🖼️ {escaped_path}
-    </div>
-    
-    <div class="image-preview-container">
-        <div class="image-wrapper">
-            <img src="/image?path={encoded_path}" alt="{escaped_path}" class="preview-image" id="previewImage" onload="updateImageDimensions()" />
-        </div>
-        <div class="image-info">
-            <h3>📄 File Information</h3>
-            <p><strong>File:</strong> {escaped_path}</p>
-            <p><strong>Size:</strong> {file_size}</p>
-            <p><strong>Dimensions:</strong> <span id="imageDimensions">Loading...</span></p>
-        </div>
-    </div>
-    
-    <div class="buttons">
-        <button onclick="window.location.href='{parent_path}'">📁 Back to Files</button>
-        <button class="delete-btn" onclick="confirmDelete('{escaped_path}')">🗑️ Delete File</button>
-    </div>
-    
-    <form id="deleteForm" method="post" action="/delete" style="display: none;">
-        <input type="hidden" name="path" value="{escaped_path}" />
-    </form>
-    
-    <script>
-        function updateImageDimensions() {{
-            const img = document.getElementById('previewImage');
-            const dimensionsSpan = document.getElementById('imageDimensions');
-            if (img && dimensionsSpan) {{
-                dimensionsSpan.textContent = `${{img.naturalWidth}} × ${{img.naturalHeight}} pixels`;
-            }}
-        }}
-    </script>
-    <script src="/static/delete.js"></script>
-</body>
-</html>"#,
-        file_path = file_path,
-        escaped_path = escaped_path,
-        encoded_path = urlencoding::encode(file_path),
-        file_size = file_size,
-        parent_path = parent_path
-    )
-}
-
-fn generate_file_preview_html(file_path: &str, file_size: &str) -> String {
-    let escaped_path = html_escape::encode_text(file_path);
-    let parent_path = get_parent_directory_path(file_path);
-    let can_iframe = is_safe_for_iframe(file_path);
-
-    let preview_content = if can_iframe {
-        format!(
-            r#"<div class="file-preview-iframe">
-                <iframe src="/file?path={}" frameborder="0" sandbox="allow-same-origin"></iframe>
-               </div>"#,
-            urlencoding::encode(file_path)
-        )
-    } else {
-        r#"<div class="file-preview-message">
-            <p>⚠️ File preview not available for this file type for security reasons.</p>
-            <p>This file type cannot be safely displayed in the browser.</p>
-           </div>"#
-            .to_string()
+fn generate_editor_html(
+    file_path: &str,
+    content: &str,
+    csrf_token: &str,
+) -> Result<String, String> {
+    let template = EditorTemplate {
+        file_path: file_path.to_string(),
+        content: content.to_string(),
+        csrf_token: csrf_token.to_string(),
     };
+    render_template(&template)
+}
 
-    format!(
-        r#"<!DOCTYPE html>
-<html>
-<head>
-    <title>Markdown Wrangler - File Preview: {file_path}</title>
-    <link rel="stylesheet" href="/static/styles.css">
-</head>
-<body>
-    <h1>📄 File Preview</h1>
-    <div class="breadcrumb">
-        <a href="/">← Back to file browser</a> | 📄 {escaped_path}
-    </div>
-    
-    <div class="file-preview-container">
-        {preview_content}
-        <div class="file-info">
-            <h3>📄 File Information</h3>
-            <p><strong>File:</strong> {escaped_path}</p>
-            <p><strong>Size:</strong> {file_size}</p>
-            <p><strong>Type:</strong> {file_type}</p>
-        </div>
-    </div>
-    
-    <div class="buttons">
-        <button onclick="window.location.href='{parent_path}'">📁 Back to Files</button>
-        <button class="delete-btn" onclick="confirmDelete('{escaped_path}')">🗑️ Delete File</button>
-    </div>
-    
-    <form id="deleteForm" method="post" action="/delete" style="display: none;">
-        <input type="hidden" name="path" value="{escaped_path}" />
-    </form>
-    
-    <script src="/static/delete.js"></script>
-</body>
-</html>"#,
-        file_path = file_path,
-        escaped_path = escaped_path,
-        file_size = file_size,
-        file_type = get_file_type_description(file_path),
-        preview_content = preview_content,
-        parent_path = parent_path
-    )
+fn generate_image_preview_html(
+    file_path: &str,
+    file_size: &str,
+    csrf_token: &str,
+) -> Result<String, String> {
+    let template = ImagePreviewTemplate {
+        file_path: file_path.to_string(),
+        encoded_path: urlencoding::encode(file_path).into_owned(),
+        file_size: file_size.to_string(),
+        parent_path: get_parent_directory_path(file_path),
+        csrf_token: csrf_token.to_string(),
+    };
+    render_template(&template)
+}
+
+fn generate_file_preview_html(
+    file_path: &str,
+    file_size: &str,
+    csrf_token: &str,
+) -> Result<String, String> {
+    let template = FilePreviewTemplate {
+        file_path: file_path.to_string(),
+        encoded_path: urlencoding::encode(file_path).into_owned(),
+        file_size: file_size.to_string(),
+        file_type: get_file_type_description(file_path).to_string(),
+        parent_path: get_parent_directory_path(file_path),
+        csrf_token: csrf_token.to_string(),
+        can_iframe: is_safe_for_iframe(file_path),
+    };
+    render_template(&template)
 }
 
 fn get_file_type_description(file_path: &str) -> &'static str {
@@ -491,102 +436,126 @@ fn get_file_type_description(file_path: &str) -> &'static str {
     }
 }
 
-fn generate_directory_html(entries: &[DirectoryEntry], current_path: &str) -> String {
-    let mut html = String::from(
-        r#"<!DOCTYPE html>
-<html>
-<head>
-    <title>Markdown Wrangler - Directory Browser</title>
-    <link rel="stylesheet" href="/static/styles.css">
-</head>
-<body style="margin: 40px;">
-    <h1>📁 Markdown Wrangler</h1>
-"#,
-    );
+fn build_breadcrumbs(current_path: &str) -> Vec<Breadcrumb> {
+    let mut breadcrumbs = Vec::new();
+    let mut path_so_far = String::new();
 
-    // Add breadcrumb navigation
-    html.push_str("<div class=\"breadcrumb\">");
-    html.push_str("📍 Path: ");
-    if current_path.is_empty() {
-        html.push_str("<strong>/</strong>");
-    } else {
-        html.push_str("<a href=\"/\">root</a>");
-        let mut path_so_far = String::new();
-        for part in current_path.split('/') {
-            if !path_so_far.is_empty() {
-                path_so_far.push('/');
-            }
-            path_so_far.push_str(part);
-            html.push_str(&format!(
-                " / <a href=\"/?path={}\">{part}</a>",
-                urlencoding::encode(&path_so_far)
-            ));
+    for part in current_path.split('/') {
+        if !path_so_far.is_empty() {
+            path_so_far.push('/');
         }
+        path_so_far.push_str(part);
+        breadcrumbs.push(Breadcrumb {
+            name: part.to_string(),
+            url: format!("/?path={}", urlencoding::encode(&path_so_far)),
+        });
     }
-    html.push_str("</div>");
 
-    // Add parent directory link if not at root
-    if !current_path.is_empty() {
-        let parent_path = if let Some(pos) = current_path.rfind('/') {
-            &current_path[..pos]
-        } else {
-            ""
-        };
-        let parent_url = if parent_path.is_empty() {
+    breadcrumbs
+}
+
+fn build_directory_entry_views(entries: &[DirectoryEntry]) -> Vec<DirectoryEntryView> {
+    entries
+        .iter()
+        .map(|entry| {
+            if entry.is_directory {
+                DirectoryEntryView {
+                    icon: "📁",
+                    class_name: "directory",
+                    name: entry.name.clone(),
+                    url: format!("/?path={}", urlencoding::encode(&entry.path)),
+                    has_url: true,
+                    executable: false,
+                }
+            } else if is_markdown_file(&entry.name) {
+                DirectoryEntryView {
+                    icon: "📄",
+                    class_name: "file",
+                    name: entry.name.clone(),
+                    url: format!("/edit?path={}", urlencoding::encode(&entry.path)),
+                    has_url: true,
+                    executable: false,
+                }
+            } else if is_image_file(&entry.name) {
+                DirectoryEntryView {
+                    icon: "🖼️",
+                    class_name: "file",
+                    name: entry.name.clone(),
+                    url: format!("/preview?path={}", urlencoding::encode(&entry.path)),
+                    has_url: true,
+                    executable: false,
+                }
+            } else if is_executable_file(&entry.name) {
+                DirectoryEntryView {
+                    icon: "⚠️",
+                    class_name: "file",
+                    name: entry.name.clone(),
+                    url: String::new(),
+                    has_url: false,
+                    executable: true,
+                }
+            } else {
+                DirectoryEntryView {
+                    icon: "📄",
+                    class_name: "file",
+                    name: entry.name.clone(),
+                    url: format!("/file-preview?path={}", urlencoding::encode(&entry.path)),
+                    has_url: true,
+                    executable: false,
+                }
+            }
+        })
+        .collect()
+}
+
+fn generate_directory_html(
+    entries: &[DirectoryEntry],
+    current_path: &str,
+) -> Result<String, String> {
+    let parent_url = if let Some(pos) = current_path.rfind('/') {
+        let parent_path = &current_path[..pos];
+        if parent_path.is_empty() {
             "/".to_string()
         } else {
             format!("/?path={}", urlencoding::encode(parent_path))
-        };
-        html.push_str(&format!(
-            "<div class=\"entry\"><a href=\"{parent_url}\">📁 <span class=\"directory\">..</span></a></div>"
-        ));
-    }
-
-    // Add directory entries
-    for entry in entries {
-        let icon = if entry.is_directory { "📁" } else { "📄" };
-        let class = if entry.is_directory {
-            "directory"
-        } else {
-            "file"
-        };
-
-        if entry.is_directory {
-            let encoded_path = urlencoding::encode(&entry.path);
-            html.push_str(&format!(
-                "<div class=\"entry\"><a href=\"/?path={}\"><span class=\"icon\">{}</span><span class=\"{}\">{}</span></a></div>",
-                encoded_path, icon, class, entry.name
-            ));
-        } else if is_markdown_file(&entry.name) {
-            let encoded_path = urlencoding::encode(&entry.path);
-            html.push_str(&format!(
-                "<div class=\"entry\"><a href=\"/edit?path={}\"><span class=\"icon\">{}</span><span class=\"{}\">{}</span></a></div>",
-                encoded_path, icon, class, entry.name
-            ));
-        } else if is_image_file(&entry.name) {
-            let encoded_path = urlencoding::encode(&entry.path);
-            html.push_str(&format!(
-                "<div class=\"entry\"><a href=\"/preview?path={}\"><span class=\"icon\">🖼️</span><span class=\"{}\">{}</span></a></div>",
-                encoded_path, class, entry.name
-            ));
-        } else if is_executable_file(&entry.name) {
-            // Don't make executable files clickable for security
-            html.push_str(&format!(
-                "<div class=\"entry\"><span class=\"icon\">⚠️</span><span class=\"{} executable\">{}</span> <small>(executable)</small></div>",
-                class, entry.name
-            ));
-        } else {
-            // Generic file preview for other file types
-            let encoded_path = urlencoding::encode(&entry.path);
-            html.push_str(&format!(
-                "<div class=\"entry\"><a href=\"/file-preview?path={}\"><span class=\"icon\">{}</span><span class=\"{}\">{}</span></a></div>",
-                encoded_path, icon, class, entry.name
-            ));
         }
-    }
+    } else {
+        "/".to_string()
+    };
 
-    html.push_str("</body></html>");
-    html
+    let template = DirectoryTemplate {
+        at_root: current_path.is_empty(),
+        breadcrumbs: build_breadcrumbs(current_path),
+        has_parent: !current_path.is_empty(),
+        parent_url,
+        entries: build_directory_entry_views(entries),
+    };
+    render_template(&template)
+}
+
+struct StatusPageContext<'a> {
+    title: &'a str,
+    heading: &'a str,
+    heading_class: &'a str,
+    file_path: &'a str,
+    detail_text: &'a str,
+    show_edit_button: bool,
+    edit_url: &'a str,
+    back_url: &'a str,
+}
+
+fn generate_status_html(context: StatusPageContext<'_>) -> Result<String, String> {
+    let template = StatusPageTemplate {
+        title: context.title.to_string(),
+        heading: context.heading.to_string(),
+        heading_class: context.heading_class.to_string(),
+        file_path: context.file_path.to_string(),
+        detail_text: context.detail_text.to_string(),
+        show_edit_button: context.show_edit_button,
+        edit_url: context.edit_url.to_string(),
+        back_url: context.back_url.to_string(),
+    };
+    render_template(&template)
 }
 
 async fn index(
@@ -596,10 +565,13 @@ async fn index(
     let path = params.get("path").map(|s| s.as_str()).unwrap_or("");
 
     match list_directory(&state.target_dir, path) {
-        Ok(entries) => {
-            let html = generate_directory_html(&entries, path);
-            Ok(Html(html))
-        }
+        Ok(entries) => match generate_directory_html(&entries, path) {
+            Ok(html) => Ok(Html(html)),
+            Err(err) => {
+                warn!("Template render error: {}", err);
+                Err((StatusCode::INTERNAL_SERVER_ERROR, err))
+            }
+        },
         Err(err) => {
             warn!("Directory listing error: {}", err);
             Err((StatusCode::BAD_REQUEST, format!("Error: {err}")))
@@ -627,8 +599,13 @@ async fn edit_file(
         Ok(full_path) => match read_file_content(&full_path) {
             Ok(content) => {
                 let csrf_token = generate_csrf_token(&state.csrf_secret);
-                let html = generate_editor_html(file_path, &content, &csrf_token);
-                Ok(Html(html))
+                match generate_editor_html(file_path, &content, &csrf_token) {
+                    Ok(html) => Ok(Html(html)),
+                    Err(err) => {
+                        warn!("Template render error: {}", err);
+                        Err((StatusCode::INTERNAL_SERVER_ERROR, err))
+                    }
+                }
             }
             Err(err) => {
                 warn!("File read error: {}", err);
@@ -670,54 +647,47 @@ async fn save_file(
                         // Content hasn't changed, don't write to disk
                         info!("File content unchanged, skipping write: {}", form.path);
                         let parent_path = get_parent_directory_path(&form.path);
-                        let no_change_html = format!(
-                            r#"<!DOCTYPE html>
-<html>
-<head>
-    <title>File Unchanged - Markdown Wrangler</title>
-    <link rel="stylesheet" href="/static/styles.css">
-</head>
-<body class="center">
-    <h1 class="success">ℹ️ No Changes to Save</h1>
-    <p>The file <strong>{}</strong> content is unchanged.</p>
-    <div class="buttons">
-        <button class="save-buttons" onclick="window.location.href='/edit?path={}'">📝 Continue Editing</button>
-        <button class="save-buttons" onclick="window.location.href='{}'">📁 Back to Files</button>
-    </div>
-</body>
-</html>"#,
-                            html_escape::encode_text(&form.path),
-                            urlencoding::encode(&form.path),
-                            parent_path
-                        );
-                        Ok(Html(no_change_html))
+                        let edit_url = format!("/edit?path={}", urlencoding::encode(&form.path));
+                        match generate_status_html(StatusPageContext {
+                            title: "File Unchanged - Markdown Wrangler",
+                            heading: "ℹ️ No Changes to Save",
+                            heading_class: "success",
+                            file_path: &form.path,
+                            detail_text: "content is unchanged.",
+                            show_edit_button: true,
+                            edit_url: &edit_url,
+                            back_url: &parent_path,
+                        }) {
+                            Ok(html) => Ok(Html(html)),
+                            Err(err) => {
+                                warn!("Template render error: {}", err);
+                                Err((StatusCode::INTERNAL_SERVER_ERROR, err))
+                            }
+                        }
                     } else {
                         // Content has changed, write to disk
                         match write_file_content(&full_path, &form.content) {
                             Ok(()) => {
                                 info!("File saved successfully: {}", form.path);
                                 let parent_path = get_parent_directory_path(&form.path);
-                                let success_html = format!(
-                                    r#"<!DOCTYPE html>
-<html>
-<head>
-    <title>File Saved - Markdown Wrangler</title>
-    <link rel="stylesheet" href="/static/styles.css">
-</head>
-<body class="center">
-    <h1 class="success">✅ File Saved Successfully!</h1>
-                                    <p>The file <strong>{}</strong> has been saved.</p>
-    <div class="buttons">
-        <button class="save-buttons" onclick="window.location.href='/edit?path={}'">📝 Continue Editing</button>
-        <button class="save-buttons" onclick="window.location.href='{}'">📁 Back to Files</button>
-    </div>
-</body>
-</html>"#,
-                                    html_escape::encode_text(&form.path),
-                                    urlencoding::encode(&form.path),
-                                    parent_path
-                                );
-                                Ok(Html(success_html))
+                                let edit_url =
+                                    format!("/edit?path={}", urlencoding::encode(&form.path));
+                                match generate_status_html(StatusPageContext {
+                                    title: "File Saved - Markdown Wrangler",
+                                    heading: "✅ File Saved Successfully!",
+                                    heading_class: "success",
+                                    file_path: &form.path,
+                                    detail_text: "has been saved.",
+                                    show_edit_button: true,
+                                    edit_url: &edit_url,
+                                    back_url: &parent_path,
+                                }) {
+                                    Ok(html) => Ok(Html(html)),
+                                    Err(err) => {
+                                        warn!("Template render error: {}", err);
+                                        Err((StatusCode::INTERNAL_SERVER_ERROR, err))
+                                    }
+                                }
                             }
                             Err(err) => {
                                 warn!("File save error: {}", err);
@@ -763,17 +733,28 @@ async fn preview_image(
 
     match validate_file_path(&state.target_dir, file_path) {
         Ok(full_path) => {
+            let csrf_token = generate_csrf_token(&state.csrf_secret);
             match get_file_size(&full_path) {
                 Ok(size_bytes) => {
                     let file_size = format_file_size(size_bytes);
-                    let html = generate_image_preview_html(file_path, &file_size);
-                    Ok(Html(html))
+                    match generate_image_preview_html(file_path, &file_size, &csrf_token) {
+                        Ok(html) => Ok(Html(html)),
+                        Err(err) => {
+                            warn!("Template render error: {}", err);
+                            Err((StatusCode::INTERNAL_SERVER_ERROR, err))
+                        }
+                    }
                 }
                 Err(err) => {
                     warn!("Failed to get file size: {}", err);
                     // Fall back to generating without size info
-                    let html = generate_image_preview_html(file_path, "Unknown");
-                    Ok(Html(html))
+                    match generate_image_preview_html(file_path, "Unknown", &csrf_token) {
+                        Ok(html) => Ok(Html(html)),
+                        Err(render_err) => {
+                            warn!("Template render error: {}", render_err);
+                            Err((StatusCode::INTERNAL_SERVER_ERROR, render_err))
+                        }
+                    }
                 }
             }
         }
@@ -856,17 +837,28 @@ async fn preview_file(
 
     match validate_file_path(&state.target_dir, file_path) {
         Ok(full_path) => {
+            let csrf_token = generate_csrf_token(&state.csrf_secret);
             match get_file_size(&full_path) {
                 Ok(size_bytes) => {
                     let file_size = format_file_size(size_bytes);
-                    let html = generate_file_preview_html(file_path, &file_size);
-                    Ok(Html(html))
+                    match generate_file_preview_html(file_path, &file_size, &csrf_token) {
+                        Ok(html) => Ok(Html(html)),
+                        Err(err) => {
+                            warn!("Template render error: {}", err);
+                            Err((StatusCode::INTERNAL_SERVER_ERROR, err))
+                        }
+                    }
                 }
                 Err(err) => {
                     warn!("Failed to get file size: {}", err);
                     // Fall back to generating without size info
-                    let html = generate_file_preview_html(file_path, "Unknown");
-                    Ok(Html(html))
+                    match generate_file_preview_html(file_path, "Unknown", &csrf_token) {
+                        Ok(html) => Ok(Html(html)),
+                        Err(render_err) => {
+                            warn!("Template render error: {}", render_err);
+                            Err((StatusCode::INTERNAL_SERVER_ERROR, render_err))
+                        }
+                    }
                 }
             }
         }
@@ -1036,25 +1028,22 @@ async fn delete_file(
             Ok(()) => {
                 info!("File deleted successfully: {}", form.path);
                 let parent_path = get_parent_directory_path(&form.path);
-                let success_html = format!(
-                    r#"<!DOCTYPE html>
-<html>
-<head>
-    <title>File Deleted - Markdown Wrangler</title>
-    <link rel="stylesheet" href="/static/styles.css">
-</head>
-<body class="center">
-    <h1 class="success">🗑️ File Deleted Successfully!</h1>
-    <p>The file <strong>{}</strong> has been deleted.</p>
-    <div class="buttons">
-        <button class="save-buttons" onclick="window.location.href='{}'">📁 Back to Files</button>
-    </div>
-</body>
-</html>"#,
-                    html_escape::encode_text(&form.path),
-                    parent_path
-                );
-                Ok(Html(success_html))
+                match generate_status_html(StatusPageContext {
+                    title: "File Deleted - Markdown Wrangler",
+                    heading: "🗑️ File Deleted Successfully!",
+                    heading_class: "success",
+                    file_path: &form.path,
+                    detail_text: "has been deleted.",
+                    show_edit_button: false,
+                    edit_url: "",
+                    back_url: &parent_path,
+                }) {
+                    Ok(html) => Ok(Html(html)),
+                    Err(err) => {
+                        warn!("Template render error: {}", err);
+                        Err((StatusCode::INTERNAL_SERVER_ERROR, err))
+                    }
+                }
             }
             Err(err) => {
                 warn!("File deletion error: {}", err);
@@ -1133,6 +1122,20 @@ mod tests {
         };
         let app = create_router(state);
         (app, temp_dir, csrf_secret)
+    }
+
+    fn create_expired_csrf_token(secret: &str) -> String {
+        let expired_timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            - 7200; // 2 hours ago
+        let payload = format!("{expired_timestamp}:12345");
+        let mut hasher = Sha256::new();
+        hasher.update(payload.as_bytes());
+        hasher.update(secret.as_bytes());
+        let signature = hex::encode(hasher.finalize());
+        format!("{payload}:{signature}")
     }
 
     #[test]
@@ -1256,6 +1259,46 @@ mod tests {
 
         // Should return 403 Forbidden due to invalid CSRF token
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body_text = String::from_utf8(body.to_vec()).unwrap();
+        assert!(body_text.contains("Invalid CSRF token"));
+
+        // File should remain unchanged
+        let content = std::fs::read_to_string(&test_file).unwrap();
+        assert_eq!(content, "# Test");
+    }
+
+    #[tokio::test]
+    async fn test_save_endpoint_with_expired_csrf_token() {
+        let (app, temp_dir, csrf_secret) = create_test_app().await;
+
+        let test_file = temp_dir.path().join("test.md");
+        std::fs::write(&test_file, "# Test").unwrap();
+
+        let expired_token = create_expired_csrf_token(&csrf_secret);
+        let body = format!(
+            "path=test.md&content=# Updated Content&csrf_token={}",
+            urlencoding::encode(&expired_token)
+        );
+
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/save")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body_text = String::from_utf8(body.to_vec()).unwrap();
+        assert!(body_text.contains("Invalid CSRF token"));
+
+        // File should remain unchanged
+        let content = std::fs::read_to_string(&test_file).unwrap();
+        assert_eq!(content, "# Test");
     }
 
     #[tokio::test]
@@ -1351,6 +1394,62 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_delete_endpoint_with_invalid_csrf_token() {
+        let (app, temp_dir, _) = create_test_app().await;
+
+        let test_file = temp_dir.path().join("test.md");
+        std::fs::write(&test_file, "# Test").unwrap();
+
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/delete")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from("path=test.md&csrf_token=invalid"))
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body_text = String::from_utf8(body.to_vec()).unwrap();
+        assert!(body_text.contains("Invalid CSRF token"));
+
+        // File should still exist
+        assert!(test_file.exists());
+    }
+
+    #[tokio::test]
+    async fn test_delete_endpoint_with_expired_csrf_token() {
+        let (app, temp_dir, csrf_secret) = create_test_app().await;
+
+        let test_file = temp_dir.path().join("test.md");
+        std::fs::write(&test_file, "# Test").unwrap();
+
+        let expired_token = create_expired_csrf_token(&csrf_secret);
+        let body = format!(
+            "path=test.md&csrf_token={}",
+            urlencoding::encode(&expired_token)
+        );
+
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/delete")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body_text = String::from_utf8(body.to_vec()).unwrap();
+        assert!(body_text.contains("Invalid CSRF token"));
+
+        // File should still exist
+        assert!(test_file.exists());
+    }
+
+    #[tokio::test]
     async fn test_edit_page_contains_csrf_token() {
         let (app, temp_dir, _) = create_test_app().await;
 
@@ -1378,6 +1477,48 @@ mod tests {
         // Should have at least 2 CSRF token fields (save form and delete form)
         let csrf_count = html.matches(r#"name="csrf_token""#).count();
         assert_eq!(csrf_count, 2);
+    }
+
+    #[tokio::test]
+    async fn test_image_preview_page_contains_csrf_token() {
+        let (app, temp_dir, _) = create_test_app().await;
+
+        let test_file = temp_dir.path().join("image.png");
+        std::fs::write(&test_file, "fake image data").unwrap();
+
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/preview?path=image.png")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(html.contains(r#"name="csrf_token""#));
+    }
+
+    #[tokio::test]
+    async fn test_file_preview_page_contains_csrf_token() {
+        let (app, temp_dir, _) = create_test_app().await;
+
+        let test_file = temp_dir.path().join("notes.txt");
+        std::fs::write(&test_file, "hello").unwrap();
+
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/file-preview?path=notes.txt")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(html.contains(r#"name="csrf_token""#));
     }
 
     #[test]

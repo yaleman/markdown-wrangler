@@ -5,149 +5,173 @@ code in this repository.
 
 ## Project Overview
 
-Markdown Wrangler is a web-based content management interface for markdown files, designed for Hugo and Zola static site generators. It provides a live-preview editor, file browser, and secure file operations with CSRF protection.
+Markdown Wrangler is a web interface for browsing and editing markdown-centric
+content trees (Hugo/Zola style), with file previews and guarded file
+operations.
 
 **Tech Stack:**
-- Rust (Cargo 2024 edition, requires nightly toolchain)
+
+- Rust (Cargo edition 2024; project currently uses nightly in Docker/dev docs)
 - Tokio async runtime
 - Axum web framework
-- JavaScript (vanilla) for client-side functionality
+- Vanilla JavaScript for client behavior
 
 ## Development Commands
 
 ### Essential Commands
 
 ```bash
-just check            # Run all quality checks (lint + test) - REQUIRED before commits
-cargo run             # Start dev server on http://localhost:5420
-cargo run -- --debug  # Run with debug logging
-cargo run -- /path/to/content  # Run with custom content directory
-cargo test            # Run all tests
-cargo test test_name  # Run a single test
+just check                 # Required before commits (clippy + tests + fmt check)
+cargo run                  # Start dev server on http://127.0.0.1:5420
+cargo run -- --debug       # Run with debug logging
+cargo run -- /path/to/dir  # Run against a custom content directory
+cargo test                 # Run all tests
+cargo test test_name       # Run a single test
 ```
 
 ### Code Quality
 
 ```bash
-just clippy           # Rust linting (treats warnings as errors)
-just test             # Run Rust test suite
-just fmt              # Check Rust formatting
-pnpm run lint         # Lint JavaScript files (eslint)
+just clippy                # Rust linting (warnings denied by policy)
+just test                  # Rust tests
+just fmt                   # Rust formatting check
+just lint_js               # JavaScript linting through pnpm/eslint
+pnpm run lint              # Direct eslint invocation for static/*.js
 ```
 
 ### Docker
 
 ```bash
-just docker_build     # Build multi-platform Docker container
+just docker_build          # Build container image
 ```
 
 ## Architecture
 
 ### Application Flow
 
-1. **CLI parsing** (`src/cli.rs`) - Validates target directory path
-2. **Tracing initialization** (`src/log_wrangler.rs`) - Sets up OpenTelemetry
-3. **Web server** (`src/web.rs`) - Starts Axum on 127.0.0.1:5420
+1. **CLI parsing/validation** (`src/cli.rs`)
+2. **Tracing initialization** (`src/logging/mod.rs`)
+3. **Web server startup** (`src/web.rs`) on `127.0.0.1:5420`
+
+### Routing (`src/web.rs`)
+
+- `GET /` - Directory browser
+- `GET /edit?path=...` - Markdown editor
+- `POST /save` - Save markdown content (CSRF-protected)
+- `POST /delete` - Delete file (CSRF-protected)
+- `GET /preview?path=...` - Image preview page
+- `GET /image?path=...` - Image bytes endpoint
+- `GET /file-preview?path=...` - Generic file preview page
+- `GET /file?path=...` - Safe-file serving endpoint for iframe previews
+- `GET /file-info?path=...` - JSON metadata
+- `GET /file-content?path=...` - JSON content for markdown files
+- `GET /static/*` - Static assets from `/static`
 
 ### Security Architecture
 
 **CSRF Protection:**
-- All state-changing operations (save, delete) require CSRF tokens
-- Tokens are HMAC-SHA256 signed with a random secret generated at startup
-- Tokens expire after 1 hour (3600 seconds)
+
+- State-changing operations (`/save`, `/delete`) require CSRF tokens.
 - Token format: `{timestamp}:{nonce}:{signature}`
-- See `generate_csrf_token()` and `validate_csrf_token()` in `src/web.rs`
+- Tokens expire after 1 hour (3600 seconds).
+- Secret is generated at startup from random bytes.
+- Current signature algorithm is SHA-256 over `"{timestamp}:{nonce}" + secret`
+  (keyed hash), implemented in `generate_csrf_token()` /
+  `validate_csrf_token()` in `src/web.rs`.
 
 **File Safety:**
-- Path traversal prevention via `canonicalize()` checks
-- Executable files blocked from preview/serving
-- Iframe preview limited to safe file types (txt, html, css, js, json, xml, pdf, csv, config files)
-- Static file lists in constants: `IMAGE_EXTENSIONS`, `EXECUTABLE_EXTENSIONS`, `IFRAME_SAFE_EXTENSIONS`
+
+- Path traversal controls use `canonicalize()` and base-directory prefix checks.
+- `validate_file_path()` ensures resolved path is inside target dir and is a file.
+- Executables are blocked from preview/serving routes.
+- Iframe serving is extension allowlisted via `IFRAME_SAFE_EXTENSIONS`.
 
 ### Key Functions in `src/web.rs`
 
-**Route Handlers:**
-- `index()` - Directory browser with breadcrumb navigation
-- `edit_file()` - Markdown editor (GET /edit?path=...)
-- `save_file()` - Save with CSRF validation, skips write if content unchanged
-- `delete_file()` - Delete with CSRF validation
-- `preview_image()` - Image preview page
-- `serve_image()` - Serve image files with proper MIME types
-- `preview_file()` - Generic file preview for non-markdown/non-image files
-- `serve_file()` - Serve safe file types in iframes
-- `get_file_info()` - JSON API for file metadata
-- `get_file_content()` - JSON API for file content (markdown only)
+**Route handlers:**
 
-**Security Helpers:**
-- `validate_file_path()` - Canonicalization and boundary checks
-- `is_markdown_file()` - .md/.markdown extension check
-- `is_image_file()` - Image extension validation
-- `is_executable_file()` - Executable detection
-- `is_safe_for_iframe()` - Whitelist check for iframe previews
+- `index()`, `edit_file()`, `save_file()`, `delete_file()`
+- `preview_image()`, `serve_image()`
+- `preview_file()`, `serve_file()`
+- `get_file_info()`, `get_file_content()`
 
-**HTML Generation:**
-- All HTML is generated server-side (no templates currently)
-- Functions: `generate_editor_html()`, `generate_directory_html()`, `generate_image_preview_html()`, `generate_file_preview_html()`
-- Uses `html_escape` crate to prevent XSS
+**Security helpers:**
 
-### Static Assets
+- `validate_file_path()`
+- `is_markdown_file()`
+- `is_image_file()`
+- `is_executable_file()`
+- `is_safe_for_iframe()`
 
-Located in `/static/` directory:
-- `editor.js` - Markdown live preview rendering
-- `editor-storage.js` - LocalStorage draft management
-- `delete.js` - Delete confirmation dialogs
-- `styles.css` - Application styles
+**HTML generation:**
+
+- HTML is built server-side with string formatting (no Askama templates in use).
+- Main functions:
+  - `generate_editor_html()`
+  - `generate_directory_html()`
+  - `generate_image_preview_html()`
+  - `generate_file_preview_html()`
+- `html_escape` is used for user/path content embedded into HTML.
+
+### Static Assets (`/static`)
+
+- `editor.js` - In-browser markdown preview rendering
+- `editor-storage.js` - Local draft autosave and disk-conflict checks
+- `delete.js` - Delete confirmation helper
+- `styles.css` - Styling
 
 ## Testing Strategy
 
-**Comprehensive CSRF test coverage:**
-- Token generation uniqueness
-- Token validation (valid, invalid, expired, malformed)
-- Protected endpoints reject missing/invalid tokens
-- Edit page contains CSRF tokens in forms
-
-**Integration tests use:**
-- `tempfile::TempDir` for isolated test directories
-- `tower::ServiceExt::oneshot()` for request testing
-- Test helper: `create_test_app()` returns `(Router, TempDir, csrf_secret)`
-
-**Run single test:**
-```bash
-cargo test test_csrf_token_validation -- --nocapture
-```
+- Unit + integration tests are colocated in `src/web.rs`.
+- CSRF coverage includes generation, validity, malformed/expired token handling.
+- Endpoint tests verify protected route behavior and editor token injection.
+- Integration tests use:
+  - `tempfile::TempDir`
+  - `tower::ServiceExt::oneshot()`
+  - helper `create_test_app()`
 
 ## Development Guidelines
 
-- **Mandatory:** Run `just check` before commits (no warnings/errors allowed)
-- **Mandatory:** Commit completed work to git
-- Use cargo commands for Cargo.toml changes (not manual edits)
-- Keep CLAUDE.md updated with architecture changes
-- JavaScript must be linted with eslint
-- No inline JavaScript/CSS - use `/static/` files
+- **Mandatory:** Run `just check` before commits.
+- **Mandatory:** Commit completed work to git.
+- Use cargo commands for dependency changes (do not hand-edit `Cargo.toml`).
+- Keep `AGENTS.md` updated when architecture/behavior changes.
+- JavaScript must pass eslint checks.
+- Prefer static assets over inline JS/CSS.
+
+## Known Gaps (as of current implementation)
+
+- Delete forms rendered by image/file preview pages currently omit `csrf_token`,
+  so delete actions from those pages fail against `POST /delete`.
+- `generate_image_preview_html()` currently contains inline JavaScript for image
+  dimensions, which conflicts with the no-inline policy.
+- `askama` and `askama_web` are present in dependencies but not used by current
+  source.
 
 ## File Type Handling
 
-**Markdown files (.md, .markdown):**
-- Route to editor with live preview
-- Can be saved and deleted
+**Markdown (`.md`, `.markdown`):**
 
-**Image files (jpg, jpeg, png, gif, webp, svg, bmp, tiff, tif):**
-- Route to image preview with dimensions/metadata
-- Served with correct MIME types
+- Open in editor with live preview, save, and delete flows.
 
-**Safe files (txt, html, css, js, json, xml, pdf, csv, yml, yaml, toml, ini, conf, cfg):**
-- Route to file preview with iframe (if safe)
-- Sandboxed iframe with `allow-same-origin`
+**Images (`jpg`, `jpeg`, `png`, `gif`, `webp`, `svg`, `bmp`, `tiff`, `tif`):**
 
-**Executable files (exe, bat, cmd, com, scr, msi, sh, ps1, vbs, app, dmg, pkg, deb, rpm):**
-- Display in browser but not clickable
-- Blocked from preview/serving
+- Open in image preview and served with image MIME types.
+
+**Safe iframe files (`txt`, `html`, `htm`, `css`, `js`, `json`, `xml`, `pdf`,
+`csv`, `log`, `yml`, `yaml`, `toml`, `ini`, `conf`, `cfg`):**
+
+- Open in generic file preview; `/file` serves bytes with type + safety headers.
+
+**Executable extensions (`exe`, `bat`, `cmd`, `com`, `scr`, `msi`, `sh`, `ps1`,
+`vbs`, `app`, `dmg`, `pkg`, `deb`, `rpm`):**
+
+- Shown in listing but intentionally not linked/served for preview.
 
 ## Common Pitfalls
 
-- Don't modify `Cargo.toml` manually - use `cargo add/remove`
-- CSRF tokens must be URL-encoded in form submissions
-- File paths must be validated through `validate_file_path()` before use
-- Always use `canonicalize()` for path security checks
-- JavaScript linting uses pnpm, not npm
-- Server binds to localhost only (127.0.0.1) - not accessible externally
+- Do not modify `Cargo.toml` manually for dependencies.
+- URL-encode CSRF tokens in form submissions.
+- Always pass file paths through `validate_file_path()` before file operations.
+- Keep path checks canonicalized and bounded to target dir.
+- Server binds to localhost only (`127.0.0.1:5420`).
