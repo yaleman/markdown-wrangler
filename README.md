@@ -196,6 +196,20 @@ The application supports OpenTelemetry tracing. Configure with standard OpenTele
 └── README.md           # This file
 ```
 
+### HTTP Routes
+
+- `GET /` - Directory browser
+- `GET /edit?path=...` - Markdown editor
+- `POST /save` - Save markdown content (CSRF-protected)
+- `POST /delete` - Delete file (CSRF-protected)
+- `GET /preview?path=...` - Image preview page
+- `GET /image?path=...` - Image bytes endpoint
+- `GET /file-preview?path=...` - Generic file preview page
+- `GET /file?path=...` - Safe-file serving endpoint for iframe previews
+- `GET /file-info?path=...` - JSON metadata
+- `GET /file-content?path=...` - JSON content for markdown files
+- `GET /static/*` - Static assets
+
 ### Key Technologies
 
 - **Rust**: Core application language with Cargo 2024 edition

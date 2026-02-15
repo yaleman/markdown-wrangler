@@ -902,6 +902,14 @@ mod tests {
         format!("{payload}:{signature}")
     }
 
+    fn extract_csrf_token_from_html(html: &str) -> Option<String> {
+        let marker = r#"name="csrf_token" value=""#;
+        let start = html.find(marker)? + marker.len();
+        let remainder = &html[start..];
+        let end = remainder.find('"')?;
+        Some(remainder[..end].to_string())
+    }
+
     #[test]
     fn test_csrf_token_generation() {
         let secret = "test_secret";
@@ -1356,6 +1364,56 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_delete_from_image_preview_context_with_valid_csrf_token() {
+        let (app, temp_dir, _) = create_test_app().await;
+
+        let test_file = temp_dir.path().join("image.png");
+        fs::write(&test_file, "fake image data")
+            .await
+            .expect("Failed to write test image file");
+
+        let preview_request = Request::builder()
+            .method(Method::GET)
+            .uri("/preview?path=image.png")
+            .body(Body::empty())
+            .expect("Failed to build image preview request");
+        let preview_response = app
+            .clone()
+            .oneshot(preview_request)
+            .await
+            .expect("Failed to send image preview request");
+        assert_eq!(preview_response.status(), StatusCode::OK);
+
+        let preview_body = preview_response
+            .into_body()
+            .collect()
+            .await
+            .expect("Failed to collect image preview body")
+            .to_bytes();
+        let preview_html = String::from_utf8(preview_body.to_vec())
+            .expect("Failed to parse image preview body as UTF-8");
+        let csrf_token = extract_csrf_token_from_html(&preview_html)
+            .expect("Image preview HTML should contain csrf_token");
+
+        let delete_body = format!(
+            "path=image.png&csrf_token={}",
+            urlencoding::encode(&csrf_token)
+        );
+        let delete_request = Request::builder()
+            .method(Method::POST)
+            .uri("/delete")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(delete_body))
+            .expect("Failed to build delete request from image preview context");
+        let delete_response = app
+            .oneshot(delete_request)
+            .await
+            .expect("Failed to send delete request from image preview context");
+        assert_eq!(delete_response.status(), StatusCode::OK);
+        assert!(!test_file.exists());
+    }
+
+    #[tokio::test]
     async fn test_file_preview_page_contains_csrf_token() {
         let (app, temp_dir, _) = create_test_app().await;
 
@@ -1382,6 +1440,56 @@ mod tests {
         let html =
             String::from_utf8(body.to_vec()).expect("Failed to parse response body as UTF-8");
         assert!(html.contains(r#"name="csrf_token""#));
+    }
+
+    #[tokio::test]
+    async fn test_delete_from_file_preview_context_with_valid_csrf_token() {
+        let (app, temp_dir, _) = create_test_app().await;
+
+        let test_file = temp_dir.path().join("notes.txt");
+        fs::write(&test_file, "hello")
+            .await
+            .expect("Failed to write test text file");
+
+        let preview_request = Request::builder()
+            .method(Method::GET)
+            .uri("/file-preview?path=notes.txt")
+            .body(Body::empty())
+            .expect("Failed to build file preview request");
+        let preview_response = app
+            .clone()
+            .oneshot(preview_request)
+            .await
+            .expect("Failed to send file preview request");
+        assert_eq!(preview_response.status(), StatusCode::OK);
+
+        let preview_body = preview_response
+            .into_body()
+            .collect()
+            .await
+            .expect("Failed to collect file preview body")
+            .to_bytes();
+        let preview_html =
+            String::from_utf8(preview_body.to_vec()).expect("Failed to parse file preview HTML");
+        let csrf_token = extract_csrf_token_from_html(&preview_html)
+            .expect("File preview HTML should contain csrf_token");
+
+        let delete_body = format!(
+            "path=notes.txt&csrf_token={}",
+            urlencoding::encode(&csrf_token)
+        );
+        let delete_request = Request::builder()
+            .method(Method::POST)
+            .uri("/delete")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(delete_body))
+            .expect("Failed to build delete request from file preview context");
+        let delete_response = app
+            .oneshot(delete_request)
+            .await
+            .expect("Failed to send delete request from file preview context");
+        assert_eq!(delete_response.status(), StatusCode::OK);
+        assert!(!test_file.exists());
     }
 
     #[test]
