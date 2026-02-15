@@ -1,5 +1,8 @@
 //! An OpenTelemetry exporter that writes Logs to stdout on export, based on `opentelemetry-stdout` crate.
 //!
+
+use super::*;
+use chrono::{DateTime, Utc};
 use opentelemetry::logs::AnyValue;
 use opentelemetry_sdk::error::{OTelSdkError, OTelSdkResult};
 use opentelemetry_sdk::logs::LogBatch;
@@ -7,9 +10,6 @@ use opentelemetry_semantic_conventions::SCHEMA_URL;
 use opentelemetry_semantic_conventions::attribute::OTEL_STATUS_CODE;
 use opentelemetry_semantic_conventions::resource::{OTEL_SCOPE_NAME, OTEL_SCOPE_VERSION};
 use serde_json::{Value, json};
-
-use super::*;
-use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::sync::atomic::{self, Ordering};
 use std::{fmt, time};

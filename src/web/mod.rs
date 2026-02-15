@@ -2,7 +2,11 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+pub(crate) mod constants;
+pub mod error;
+
 use askama::Template;
+use askama_web::WebTemplate;
 use axum::{
     Router,
     extract::{Form, Query, State},
@@ -10,6 +14,7 @@ use axum::{
     response::{Html, Json},
     routing::{get, post},
 };
+use constants::*;
 use rand::RngExt;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -22,6 +27,8 @@ use std::{
 use tokio::net::TcpListener;
 use tower_http::services::ServeDir;
 use tracing::{info, warn};
+
+use crate::web::error::WebError;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -52,7 +59,7 @@ struct DirectoryEntryView {
     executable: bool,
 }
 
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "directory.html")]
 struct DirectoryTemplate {
     at_root: bool,
@@ -62,7 +69,7 @@ struct DirectoryTemplate {
     entries: Vec<DirectoryEntryView>,
 }
 
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "editor.html")]
 struct EditorTemplate {
     file_path: String,
@@ -70,7 +77,7 @@ struct EditorTemplate {
     csrf_token: String,
 }
 
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "image_preview.html")]
 struct ImagePreviewTemplate {
     file_path: String,
@@ -80,7 +87,7 @@ struct ImagePreviewTemplate {
     csrf_token: String,
 }
 
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "file_preview.html")]
 struct FilePreviewTemplate {
     file_path: String,
@@ -92,7 +99,7 @@ struct FilePreviewTemplate {
     can_iframe: bool,
 }
 
-#[derive(Template)]
+#[derive(Template, WebTemplate)]
 #[template(path = "status_page.html")]
 struct StatusPageTemplate {
     title: String,
@@ -178,7 +185,7 @@ pub(crate) fn validate_csrf_token(token: &str, secret: &str) -> bool {
     expected_signature == provided_signature
 }
 
-fn list_directory(base_dir: &Path, relative_path: &str) -> Result<Vec<DirectoryEntry>, String> {
+fn list_directory(base_dir: &Path, relative_path: &str) -> Result<Vec<DirectoryEntry>, WebError> {
     let full_path = if relative_path.is_empty() {
         base_dir.to_path_buf()
     } else {
@@ -188,21 +195,25 @@ fn list_directory(base_dir: &Path, relative_path: &str) -> Result<Vec<DirectoryE
     // Security check: ensure the path is within the base directory
     let canonical_base = base_dir
         .canonicalize()
-        .map_err(|e| format!("Base directory error: {e}"))?;
+        .map_err(|e| WebError::BadRequest(format!("Base directory error: {e}")))?;
     let canonical_full = full_path
         .canonicalize()
-        .map_err(|e| format!("Path error: {e}"))?;
+        .map_err(|e| WebError::BadRequest(format!("Path error: {e}")))?;
 
     if !canonical_full.starts_with(&canonical_base) {
-        return Err("Path outside base directory".to_string());
+        warn!(
+            "Directory traversal attempt detected: {}",
+            full_path.display()
+        );
+        return Err(WebError::Unauthorized);
     }
 
-    let entries = fs::read_dir(&full_path).map_err(|e| format!("Failed to read directory: {e}"))?;
+    let entries = fs::read_dir(&full_path)?;
 
     let mut directory_entries = Vec::new();
 
     for entry in entries {
-        let entry = entry.map_err(|e| format!("Failed to read entry: {e}"))?;
+        let entry = entry?;
         let file_name = entry.file_name().to_string_lossy().to_string();
 
         // Skip hidden files
@@ -210,10 +221,7 @@ fn list_directory(base_dir: &Path, relative_path: &str) -> Result<Vec<DirectoryE
             continue;
         }
 
-        let is_directory = entry
-            .file_type()
-            .map_err(|e| format!("Failed to get file type: {e}"))?
-            .is_dir();
+        let is_directory = entry.file_type()?.is_dir();
 
         let entry_path = if relative_path.is_empty() {
             file_name.clone()
@@ -262,35 +270,6 @@ fn validate_file_path(base_dir: &Path, relative_path: &str) -> Result<PathBuf, S
 
 fn is_markdown_file(path: &str) -> bool {
     path.to_lowercase().ends_with(".md") || path.to_lowercase().ends_with(".markdown")
-}
-
-const IMAGE_EXTENSIONS: &[&str] = &[
-    "jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "tiff", "tif",
-];
-
-fn is_image_file(path: &str) -> bool {
-    let lower_path = path.to_lowercase();
-    IMAGE_EXTENSIONS.contains(&lower_path.split('.').next_back().unwrap_or(""))
-}
-
-const EXECUTABLE_EXTENSIONS: &[&str] = &[
-    "exe", "bat", "cmd", "com", "scr", "msi", "sh", "ps1", "vbs", "app", "dmg", "pkg", "deb", "rpm",
-];
-
-fn is_executable_file(path: &str) -> bool {
-    let lower_path = path.to_lowercase();
-    EXECUTABLE_EXTENSIONS.contains(&lower_path.split('.').next_back().unwrap_or(""))
-}
-
-const IFRAME_SAFE_EXTENSIONS: &[&str] = &[
-    "txt", "html", "htm", "css", "js", "json", "xml", "pdf", "csv", "log", "yml", "yaml", "toml",
-    "ini", "conf", "cfg",
-];
-
-fn is_safe_for_iframe(path: &str) -> bool {
-    let lower_path = path.to_lowercase();
-    // Allow text files, web files, and documents that browsers can display safely
-    IFRAME_SAFE_EXTENSIONS.contains(&lower_path.split('.').next_back().unwrap_or(""))
 }
 
 fn read_file_content(file_path: &Path) -> Result<String, String> {
@@ -354,19 +333,6 @@ fn render_template<T: Template>(template: &T) -> Result<String, String> {
         .map_err(|e| format!("Failed to render template: {e}"))
 }
 
-fn generate_editor_html(
-    file_path: &str,
-    content: &str,
-    csrf_token: &str,
-) -> Result<String, String> {
-    let template = EditorTemplate {
-        file_path: file_path.to_string(),
-        content: content.to_string(),
-        csrf_token: csrf_token.to_string(),
-    };
-    render_template(&template)
-}
-
 fn generate_image_preview_html(
     file_path: &str,
     file_size: &str,
@@ -378,23 +344,6 @@ fn generate_image_preview_html(
         file_size: file_size.to_string(),
         parent_path: get_parent_directory_path(file_path),
         csrf_token: csrf_token.to_string(),
-    };
-    render_template(&template)
-}
-
-fn generate_file_preview_html(
-    file_path: &str,
-    file_size: &str,
-    csrf_token: &str,
-) -> Result<String, String> {
-    let template = FilePreviewTemplate {
-        file_path: file_path.to_string(),
-        encoded_path: urlencoding::encode(file_path).into_owned(),
-        file_size: file_size.to_string(),
-        file_type: get_file_type_description(file_path).to_string(),
-        parent_path: get_parent_directory_path(file_path),
-        csrf_token: csrf_token.to_string(),
-        can_iframe: is_safe_for_iframe(file_path),
     };
     render_template(&template)
 }
@@ -508,10 +457,10 @@ fn build_directory_entry_views(entries: &[DirectoryEntry]) -> Vec<DirectoryEntry
         .collect()
 }
 
-fn generate_directory_html(
+fn generate_directory_template(
     entries: &[DirectoryEntry],
     current_path: &str,
-) -> Result<String, String> {
+) -> DirectoryTemplate {
     let parent_url = if let Some(pos) = current_path.rfind('/') {
         let parent_path = &current_path[..pos];
         if parent_path.is_empty() {
@@ -523,14 +472,13 @@ fn generate_directory_html(
         "/".to_string()
     };
 
-    let template = DirectoryTemplate {
+    DirectoryTemplate {
         at_root: current_path.is_empty(),
         breadcrumbs: build_breadcrumbs(current_path),
         has_parent: !current_path.is_empty(),
         parent_url,
         entries: build_directory_entry_views(entries),
-    };
-    render_template(&template)
+    }
 }
 
 struct StatusPageContext<'a> {
@@ -561,28 +509,17 @@ fn generate_status_html(context: StatusPageContext<'_>) -> Result<String, String
 async fn index(
     Query(params): Query<HashMap<String, String>>,
     State(state): State<AppState>,
-) -> Result<Html<String>, (StatusCode, String)> {
+) -> Result<DirectoryTemplate, WebError> {
     let path = params.get("path").map(|s| s.as_str()).unwrap_or("");
 
-    match list_directory(&state.target_dir, path) {
-        Ok(entries) => match generate_directory_html(&entries, path) {
-            Ok(html) => Ok(Html(html)),
-            Err(err) => {
-                warn!("Template render error: {}", err);
-                Err((StatusCode::INTERNAL_SERVER_ERROR, err))
-            }
-        },
-        Err(err) => {
-            warn!("Directory listing error: {}", err);
-            Err((StatusCode::BAD_REQUEST, format!("Error: {err}")))
-        }
-    }
+    list_directory(&state.target_dir, path)
+        .map(|entries| generate_directory_template(&entries, path))
 }
 
 async fn edit_file(
     Query(params): Query<HashMap<String, String>>,
     State(state): State<AppState>,
-) -> Result<Html<String>, (StatusCode, String)> {
+) -> Result<EditorTemplate, (StatusCode, String)> {
     let file_path = params.get("path").ok_or((
         StatusCode::BAD_REQUEST,
         "Missing path parameter".to_string(),
@@ -599,13 +536,11 @@ async fn edit_file(
         Ok(full_path) => match read_file_content(&full_path) {
             Ok(content) => {
                 let csrf_token = generate_csrf_token(&state.csrf_secret);
-                match generate_editor_html(file_path, &content, &csrf_token) {
-                    Ok(html) => Ok(Html(html)),
-                    Err(err) => {
-                        warn!("Template render error: {}", err);
-                        Err((StatusCode::INTERNAL_SERVER_ERROR, err))
-                    }
-                }
+                Ok(EditorTemplate {
+                    file_path: file_path.to_string(),
+                    content,
+                    csrf_token,
+                })
             }
             Err(err) => {
                 warn!("File read error: {}", err);
@@ -821,7 +756,7 @@ async fn serve_image(
 async fn preview_file(
     Query(params): Query<HashMap<String, String>>,
     State(state): State<AppState>,
-) -> Result<Html<String>, (StatusCode, String)> {
+) -> Result<FilePreviewTemplate, (StatusCode, String)> {
     let file_path = params.get("path").ok_or((
         StatusCode::BAD_REQUEST,
         "Missing path parameter".to_string(),
@@ -841,24 +776,28 @@ async fn preview_file(
             match get_file_size(&full_path) {
                 Ok(size_bytes) => {
                     let file_size = format_file_size(size_bytes);
-                    match generate_file_preview_html(file_path, &file_size, &csrf_token) {
-                        Ok(html) => Ok(Html(html)),
-                        Err(err) => {
-                            warn!("Template render error: {}", err);
-                            Err((StatusCode::INTERNAL_SERVER_ERROR, err))
-                        }
-                    }
+                    Ok(FilePreviewTemplate {
+                        file_path: file_path.to_string(),
+                        encoded_path: urlencoding::encode(file_path).into_owned(),
+                        file_size: file_size.to_string(),
+                        file_type: get_file_type_description(file_path).to_string(),
+                        parent_path: get_parent_directory_path(file_path),
+                        csrf_token: csrf_token.to_string(),
+                        can_iframe: is_safe_for_iframe(file_path),
+                    })
                 }
                 Err(err) => {
                     warn!("Failed to get file size: {}", err);
                     // Fall back to generating without size info
-                    match generate_file_preview_html(file_path, "Unknown", &csrf_token) {
-                        Ok(html) => Ok(Html(html)),
-                        Err(render_err) => {
-                            warn!("Template render error: {}", render_err);
-                            Err((StatusCode::INTERNAL_SERVER_ERROR, render_err))
-                        }
-                    }
+                    Ok(FilePreviewTemplate {
+                        file_path: file_path.to_string(),
+                        encoded_path: urlencoding::encode(file_path).into_owned(),
+                        file_size: "Unknown".to_string(),
+                        file_type: get_file_type_description(file_path).to_string(),
+                        parent_path: get_parent_directory_path(file_path),
+                        csrf_token: csrf_token.to_string(),
+                        can_iframe: is_safe_for_iframe(file_path),
+                    })
                 }
             }
         }
@@ -1060,8 +999,8 @@ async fn delete_file(
     }
 }
 
-async fn handler_404() -> (StatusCode, &'static str) {
-    (StatusCode::NOT_FOUND, "not found")
+async fn handler_404() -> WebError {
+    WebError::NotFound("Not found".to_string())
 }
 
 fn create_router(state: AppState) -> Router {

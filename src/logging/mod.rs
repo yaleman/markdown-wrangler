@@ -7,15 +7,15 @@ mod consoleexporter;
 use opentelemetry::{KeyValue, trace::TracerProvider};
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::{LogExporter as OtlpLogExporter, Protocol, WithExportConfig};
+use opentelemetry_sdk::{
+    Resource,
+    trace::{Sampler, SdkTracerProvider},
+};
 use opentelemetry_semantic_conventions::attribute::{SERVICE_NAME, SERVICE_VERSION};
 use std::time::Duration;
 use tracing::info;
 use tracing_subscriber::{Layer, layer::SubscriberExt, util::SubscriberInitExt};
 
-use opentelemetry_sdk::{
-    Resource,
-    trace::{Sampler, SdkTracerProvider},
-};
 pub fn init_tracing(
     enable_otel_logs: bool,
     debug: bool,
