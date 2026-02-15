@@ -138,6 +138,8 @@ just docker_build          # Build container image
 - Keep `AGENTS.md` updated when architecture/behavior changes.
 - JavaScript must pass eslint checks.
 - Prefer static assets over inline JS/CSS.
+- In production code, do not use `unwrap()` or `expect()`.
+- In tests, `expect()` is allowed when the message adds actionable context.
 
 ## Known Gaps (as of current implementation)
 

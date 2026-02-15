@@ -139,11 +139,16 @@ struct FileContent {
 }
 
 pub(crate) fn generate_csrf_token(secret: &str) -> String {
-    #[allow(clippy::expect_used)]
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("Failed to get current time")
-        .as_secs();
+    let timestamp = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_secs(),
+        Err(err) => {
+            warn!(
+                "System time is before UNIX_EPOCH while generating CSRF token: {}",
+                err
+            );
+            0
+        }
+    };
     let nonce: u64 = rand::rng().random();
 
     let payload = format!("{timestamp}:{nonce}");
@@ -157,22 +162,25 @@ pub(crate) fn generate_csrf_token(secret: &str) -> String {
 
 pub(crate) fn validate_csrf_token(token: &str, secret: &str) -> Result<(), WebError> {
     let parts: Vec<&str> = token.split(':').collect();
-    if parts.len() != 3 {
-        return Err(WebError::Forbidden("Invalid CSRF Token".to_string()));
-    }
 
-    let timestamp_str = parts[0];
-    let nonce = parts[1];
-    let provided_signature = parts[2];
+    let [timestamp_str, nonce, provided_signature] = parts.as_slice() else {
+        return Err(WebError::Forbidden("Invalid CSRF Token".to_string()));
+    };
 
     // Check if token is not too old (1 hour)
     if let Ok(timestamp) = timestamp_str.parse::<u64>() {
-        #[allow(clippy::expect_used)]
-        let current_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Failed to get current time")
-            .as_secs();
-        if current_time - timestamp > 3600 {
+        let current_time = match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Ok(duration) => duration.as_secs(),
+            Err(err) => {
+                warn!(
+                    "System time is before UNIX_EPOCH while validating CSRF token: {}",
+                    err
+                );
+                return Err(WebError::Forbidden("Invalid CSRF Token".to_string()));
+            }
+        };
+
+        if current_time.saturating_sub(timestamp) > 3600 {
             debug!(?timestamp, ?current_time, "CSRF token expired");
             return Err(WebError::Forbidden("Invalid CSRF Token".to_string()));
         }
@@ -186,7 +194,7 @@ pub(crate) fn validate_csrf_token(token: &str, secret: &str) -> Result<(), WebEr
     hasher.update(secret.as_bytes());
     let expected_signature = hex::encode(hasher.finalize());
 
-    if expected_signature == provided_signature {
+    if expected_signature == *provided_signature {
         Ok(())
     } else {
         Err(WebError::Forbidden("Invalid CSRF Token".to_string()))
@@ -299,9 +307,11 @@ fn format_file_size(size_bytes: u64) -> String {
     }
 
     if unit_index == 0 {
-        format!("{size_bytes} {}", UNITS[unit_index])
+        format!("{size_bytes} B")
+    } else if let Some(unit) = UNITS.get(unit_index) {
+        format!("{size:.1} {}", unit)
     } else {
-        format!("{size:.1} {}", UNITS[unit_index])
+        format!("{size_bytes} B")
     }
 }
 
@@ -603,12 +613,17 @@ async fn serve_image(
 
     let mut response = Response::new(axum::body::Body::from(file_contents));
 
-    response.headers_mut().insert(
-        "Content-Type",
-        content_type
-            .parse()
-            .unwrap_or_else(|_| "application/octet-stream".parse().unwrap()),
-    );
+    let header_value = match HeaderValue::from_str(content_type) {
+        Ok(value) => value,
+        Err(err) => {
+            warn!(
+                "Invalid content type '{}' for image response, using fallback: {}",
+                content_type, err
+            );
+            HeaderValue::from_static("application/octet-stream")
+        }
+    };
+    response.headers_mut().insert("Content-Type", header_value);
 
     Ok(response)
 }
@@ -826,7 +841,7 @@ mod tests {
     use tower::ServiceExt;
 
     async fn create_test_app() -> (Router, TempDir, String) {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = TempDir::new().expect("failed to create temporary test directory");
         let csrf_secret = "test_secret_key_for_csrf_testing".to_string();
         let state = AppState {
             target_dir: temp_dir.path().to_path_buf(),
@@ -839,7 +854,7 @@ mod tests {
     fn create_expired_csrf_token(secret: &str) -> String {
         let expired_timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .expect("system clock should be after UNIX_EPOCH")
             .as_secs()
             - 7200; // 2 hours ago
         let payload = format!("{expired_timestamp}:12345");
@@ -903,7 +918,7 @@ mod tests {
         // Create an expired token (timestamp from 2 hours ago)
         let expired_timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .expect("system clock should be after UNIX_EPOCH")
             .as_secs()
             - 7200; // 2 hours ago
 
@@ -943,9 +958,12 @@ mod tests {
             .uri("/save")
             .header("content-type", "application/x-www-form-urlencoded")
             .body(Body::from("path=test.md&content=# Updated Content"))
-            .unwrap();
+            .expect("failed to build save request without csrf token");
 
-        let response = app.oneshot(request).await.unwrap();
+        let response = app
+            .oneshot(request)
+            .await
+            .expect("failed to send save request without csrf token");
 
         // Should return 422 Unprocessable Entity due to missing CSRF token
         assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
@@ -969,14 +987,22 @@ mod tests {
             .body(Body::from(
                 "path=test.md&content=# Updated Content&csrf_token=invalid",
             ))
-            .unwrap();
+            .expect("failed to build save request with invalid csrf token");
 
-        let response = app.oneshot(request).await.unwrap();
+        let response = app
+            .oneshot(request)
+            .await
+            .expect("failed to send save request with invalid csrf token");
 
         // Should return 403 Forbidden due to invalid CSRF token
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
-        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("failed to collect response body for invalid csrf save")
+            .to_bytes();
         let body_text = String::from_utf8(body.to_vec()).expect("Failed to get response body");
         assert!(
             body_text
@@ -1011,12 +1037,20 @@ mod tests {
             .uri("/save")
             .header("content-type", "application/x-www-form-urlencoded")
             .body(Body::from(body))
-            .unwrap();
+            .expect("failed to build save request with expired csrf token");
 
-        let response = app.oneshot(request).await.unwrap();
+        let response = app
+            .oneshot(request)
+            .await
+            .expect("failed to send save request with expired csrf token");
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
-        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("failed to collect response body for expired csrf save")
+            .to_bytes();
         let body_text = String::from_utf8(body.to_vec()).expect("Failed to get response body");
         assert!(
             body_text
@@ -1055,9 +1089,12 @@ mod tests {
             .uri("/save")
             .header("content-type", "application/x-www-form-urlencoded")
             .body(Body::from(body))
-            .unwrap();
+            .expect("failed to build save request with valid csrf token");
 
-        let response = app.oneshot(request).await.unwrap();
+        let response = app
+            .oneshot(request)
+            .await
+            .expect("failed to send save request with valid csrf token");
 
         // Should succeed
         assert_eq!(response.status(), StatusCode::OK);
@@ -1085,9 +1122,12 @@ mod tests {
             .uri("/delete")
             .header("content-type", "application/x-www-form-urlencoded")
             .body(Body::from("path=test.md"))
-            .unwrap();
+            .expect("failed to build delete request without csrf token");
 
-        let response = app.oneshot(request).await.unwrap();
+        let response = app
+            .oneshot(request)
+            .await
+            .expect("failed to send delete request without csrf token");
 
         // Should return 422 Unprocessable Entity due to missing CSRF token
         assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
@@ -1120,9 +1160,12 @@ mod tests {
             .uri("/delete")
             .header("content-type", "application/x-www-form-urlencoded")
             .body(Body::from(body))
-            .unwrap();
+            .expect("failed to build delete request with valid csrf token");
 
-        let response = app.oneshot(request).await.unwrap();
+        let response = app
+            .oneshot(request)
+            .await
+            .expect("failed to send delete request with valid csrf token");
 
         // Should succeed
         assert_eq!(response.status(), StatusCode::OK);
@@ -1187,9 +1230,12 @@ mod tests {
             .uri("/delete")
             .header("content-type", "application/x-www-form-urlencoded")
             .body(Body::from(body))
-            .unwrap();
+            .expect("failed to build delete request with expired csrf token");
 
-        let response = app.oneshot(request).await.unwrap();
+        let response = app
+            .oneshot(request)
+            .await
+            .expect("failed to send delete request with expired csrf token");
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
         let body = response

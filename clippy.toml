@@ -11,11 +11,16 @@ disallowed-methods = [
     { path = "std::thread::sleep", reason = "Sleeping should not be used in tests as time is a controlled parameter. Additionally, sleeping can block async threads from proceeding." },
     { path = "std::fs::write", reason = "Blocking writing to the file system should not be used as it's slow." },
     { path = "std::fs::read_to_string", reason = "Blocking reading from the file system should not be used as it's slow." },
-    { path = "std::fs::*", reason = "Blocking file system operations should not be used as they are slow." },
+    { path = "std::fs::read", reason = "Blocking reading from the file system should not be used as it's slow." },
+    { path = "std::fs::remove_file", reason = "Blocking file deletion should not be used as it's slow." },
+    { path = "std::fs::create_dir_all", reason = "Blocking directory creation should not be used as it's slow." },
+    { path = "std::fs::remove_dir_all", reason = "Blocking directory deletion should not be used as it's slow." },
+    { path = "std::fs::copy", reason = "Blocking file copying should not be used as it's slow." },
+    { path = "std::fs::rename", reason = "Blocking file renaming should not be used as it's slow." },
 ]
 
 allow-expect-in-tests = true
 allow-unwrap-in-tests = false
 allow-panic-in-tests = true
 allow-dbg-in-tests = true
-allow-indexing-slicing-in-tests = false
+allow-indexing-slicing-in-tests = true
