@@ -13,13 +13,14 @@ categories = ["web-programming", "text-processing"]
 [dependencies]
 askama = { version = "0.15.4", features = ["serde_json"] }
 askama_web = { version = "0.15.1", features = ["axum-0.8"] }
-axum = "0.8.8"
+axum = { version = "0.8.8", features = ["multipart"] }
 axum-tracing-opentelemetry = "0.33.0"
 chrono = { version = "0.4.43", default-features = false }
 clap = { version = "4.5.58", features = ["derive"] }
 hex = "0.4.3"
 hmac = "0.12.1"
 html-escape = "0.2.13"
+image = "0.25.9"
 opentelemetry = "0.31.0"
 opentelemetry-appender-tracing = "0.31.1"
 opentelemetry-otlp = { version = "0.31.0", features = ["grpc-tonic", "tonic"] }
@@ -27,6 +28,7 @@ opentelemetry-semantic-conventions = "0.31.0"
 opentelemetry-stdout = "0.31.0"
 opentelemetry_sdk = { version = "0.31.0", features = ["rt-tokio"] }
 rand = "0.10.0"
+roxmltree = "0.21.1"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 serde_yaml = "0.9.34"

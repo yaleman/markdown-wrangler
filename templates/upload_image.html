@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Markdown Wrangler - Upload Image</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="directory-page">
+    <h1>🖼️ Upload Image</h1>
+    <div class="breadcrumb">
+        <a href="{{ back_url }}">← Back to file browser</a> | 📍 Path: <strong>{{ current_path_display }}</strong>
+    </div>
+
+    <form method="post" action="/upload-image" enctype="multipart/form-data">
+        <input type="hidden" name="path" value="{{ path_value }}" />
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+
+        <div class="entry">
+            <label for="image"><strong>Image File</strong></label>
+        </div>
+        <div class="entry">
+            <input id="image" name="image" type="file" accept=".jpg,.jpeg,.png,.gif,.webp,.svg,.bmp,.tiff,.tif" required />
+        </div>
+        <div class="entry">
+            <small>Maximum upload size: {{ max_upload_size }}</small>
+        </div>
+
+        <div class="buttons">
+            <button type="submit">📤 Upload Image</button>
+            <a class="button-link cancel" href="{{ back_url }}">❌ Cancel</a>
+        </div>
+    </form>
+</body>
+</html>

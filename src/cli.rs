@@ -21,6 +21,13 @@ pub struct Cli {
 
     #[arg(long, help = "Enable OpenTelemetry logging export")]
     pub enable_otel_logs: bool,
+
+    #[arg(
+        long,
+        help = "Maximum allowed uploaded image size in bytes",
+        default_value_t = 1_048_576usize
+    )]
+    pub max_upload_size_bytes: usize,
 }
 
 impl Cli {
@@ -43,6 +50,10 @@ impl Cli {
             ));
         }
 
+        if self.max_upload_size_bytes == 0 {
+            return Err("Maximum upload size must be greater than 0 bytes".to_string());
+        }
+
         Ok(())
     }
 }
@@ -62,6 +73,7 @@ mod tests {
         let cli = Cli::parse_from(["markdown-wrangler"]);
         assert!(!cli.debug);
         assert!(!cli.enable_otel_logs);
+        assert_eq!(cli.max_upload_size_bytes, 1_048_576);
         assert_eq!(cli.target_dir, PathBuf::from("."));
     }
 
@@ -71,10 +83,13 @@ mod tests {
             "markdown-wrangler",
             "--debug",
             "--enable-otel-logs",
+            "--max-upload-size-bytes",
+            "2048",
             "content",
         ]);
         assert!(cli.debug);
         assert!(cli.enable_otel_logs);
+        assert_eq!(cli.max_upload_size_bytes, 2048);
         assert_eq!(cli.target_dir, PathBuf::from("content"));
     }
 
@@ -85,6 +100,7 @@ mod tests {
             debug: false,
             target_dir: temp_dir.path().to_path_buf(),
             enable_otel_logs: false,
+            max_upload_size_bytes: 1_048_576,
         };
         assert!(cli.validate().is_ok());
     }
@@ -97,6 +113,7 @@ mod tests {
             debug: false,
             target_dir: missing.clone(),
             enable_otel_logs: false,
+            max_upload_size_bytes: 1_048_576,
         };
 
         let result = cli.validate();
@@ -117,6 +134,7 @@ mod tests {
             debug: false,
             target_dir: file_path.clone(),
             enable_otel_logs: false,
+            max_upload_size_bytes: 1_048_576,
         };
 
         let result = cli.validate();
@@ -125,6 +143,22 @@ mod tests {
         let err = result.expect_err("validation should return an error");
         assert!(err.contains("is not a directory"));
         assert!(err.contains(&display_path(&file_path)));
+    }
+
+    #[test]
+    fn test_validate_fails_for_zero_max_upload_size() {
+        let temp_dir = TempDir::new().expect("failed to create temporary directory");
+        let cli = Cli {
+            debug: false,
+            target_dir: temp_dir.path().to_path_buf(),
+            enable_otel_logs: false,
+            max_upload_size_bytes: 0,
+        };
+
+        let result = cli.validate();
+        assert!(result.is_err());
+        let err = result.expect_err("validation should return an error");
+        assert!(err.contains("greater than 0"));
     }
 
     fn display_path(path: &Path) -> String {

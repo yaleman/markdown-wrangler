@@ -58,6 +58,8 @@ just docker_build          # Build container image
 - `GET /` - Directory browser
 - `GET /new-file?path=...` - New markdown file form
 - `POST /new-file` - Create markdown file and redirect to editor (CSRF-protected)
+- `GET /upload-image?path=...` - Image upload form
+- `POST /upload-image` - Upload validated image file (CSRF-protected)
 - `GET /edit?path=...` - Markdown editor
 - `POST /save` - Save markdown content (CSRF-protected)
 - `POST /delete` - Delete file (CSRF-protected)
@@ -93,6 +95,7 @@ just docker_build          # Build container image
 **Route handlers:**
 
 - `index()`, `new_file_form()`, `create_new_file()`
+- `upload_image_form()`, `upload_image()`
 - `edit_file()`, `save_file()`, `delete_file()`
 - `preview_image()`, `serve_image()`
 - `preview_file()`, `serve_file()`
@@ -106,6 +109,7 @@ just docker_build          # Build container image
 - `is_executable_file()`
 - `is_safe_for_iframe()`
 - `parse_frontmatter()` parses YAML/JSON frontmatter for standard metadata fields.
+- `normalize_image_filename()` and `validate_image_bytes()` enforce upload safety.
 
 **HTML generation:**
 
@@ -157,6 +161,8 @@ just docker_build          # Build container image
 **Images (`jpg`, `jpeg`, `png`, `gif`, `webp`, `svg`, `bmp`, `tiff`, `tif`):**
 
 - Open in image preview and served with image MIME types.
+- Upload flow validates image bytes/content before writing to disk.
+- Upload size limit is configurable via CLI (`--max-upload-size-bytes`, default `1048576` bytes / 1 MB).
 
 **Safe iframe files (`txt`, `html`, `htm`, `css`, `js`, `json`, `xml`, `pdf`,
 `csv`, `log`, `yml`, `yaml`, `toml`, `ini`, `conf`, `cfg`):**

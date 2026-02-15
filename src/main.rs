@@ -43,10 +43,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tracing_provider = init_tracing(cli.enable_otel_logs, cli.debug)?;
     log_startup(cli.debug);
 
-    info!("Watching directory: {}", cli.target_dir.display());
+    info!(
+        "Watching directory: {} (max upload size: {} bytes)",
+        cli.target_dir.display(),
+        cli.max_upload_size_bytes
+    );
 
     tokio::select! {
-        err = start_server(cli.target_dir) => {
+        err = start_server(cli.target_dir, cli.max_upload_size_bytes) => {
             if let Err(err) = err {
                 eprintln!("Server error, shutting down. Error: {err}");
             }

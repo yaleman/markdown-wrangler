@@ -9,7 +9,7 @@ use askama::Template;
 use askama_web::WebTemplate;
 use axum::{
     Router,
-    extract::{Form, Query, State},
+    extract::{Form, Multipart, Query, State},
     http::HeaderValue,
     response::{Json, Redirect, Response},
     routing::{get, post},
@@ -38,6 +38,7 @@ type HmacSha256 = Hmac<Sha256>;
 pub struct AppState {
     pub target_dir: PathBuf,
     pub csrf_secret: String,
+    pub max_upload_size_bytes: usize,
 }
 
 #[derive(Debug)]
@@ -71,6 +72,7 @@ struct DirectoryTemplate {
     has_parent: bool,
     parent_url: String,
     new_file_url: String,
+    upload_image_url: String,
     entries: Vec<DirectoryEntryView>,
 }
 
@@ -125,6 +127,16 @@ struct NewFileTemplate {
     path_value: String,
     back_url: String,
     csrf_token: String,
+}
+
+#[derive(Template, WebTemplate)]
+#[template(path = "upload_image.html")]
+struct UploadImageTemplate {
+    current_path_display: String,
+    path_value: String,
+    back_url: String,
+    csrf_token: String,
+    max_upload_size: String,
 }
 
 #[derive(Deserialize)]
@@ -391,8 +403,79 @@ fn normalize_markdown_filename(filename: &str) -> Result<String, WebError> {
     Ok(format!("{stem}.md"))
 }
 
+fn normalize_image_filename(filename: &str) -> Result<String, WebError> {
+    let trimmed = filename.trim();
+    if trimmed.is_empty() {
+        return Err(WebError::BadRequest(
+            "Image filename is required".to_string(),
+        ));
+    }
+
+    let Some(file_name) = std::path::Path::new(trimmed)
+        .file_name()
+        .and_then(|s| s.to_str())
+    else {
+        return Err(WebError::BadRequest(
+            "Image filename is invalid".to_string(),
+        ));
+    };
+
+    if file_name != trimmed {
+        return Err(WebError::BadRequest(
+            "Image filename must not include directory components".to_string(),
+        ));
+    }
+
+    if !file_name.is_ascii()
+        || file_name.starts_with('.')
+        || file_name.ends_with('.')
+        || file_name.contains("..")
+        || !file_name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+    {
+        return Err(WebError::BadRequest(
+            "Image filename must use only ASCII letters, numbers, '-', '_', or '.'".to_string(),
+        ));
+    }
+
+    if !is_image_file(file_name) {
+        return Err(WebError::BadRequest(
+            "Image filename must use a supported image extension".to_string(),
+        ));
+    }
+
+    Ok(file_name.to_string())
+}
+
 fn is_markdown_file(path: &str) -> bool {
     path.to_lowercase().ends_with(".md") || path.to_lowercase().ends_with(".markdown")
+}
+
+fn validate_image_bytes(file_name: &str, bytes: &[u8]) -> Result<(), WebError> {
+    if bytes.is_empty() {
+        return Err(WebError::BadRequest(
+            "Uploaded image file is empty".to_string(),
+        ));
+    }
+
+    if file_name.to_ascii_lowercase().ends_with(".svg") {
+        let text = std::str::from_utf8(bytes).map_err(|_| {
+            WebError::BadRequest("Uploaded SVG file is not valid UTF-8".to_string())
+        })?;
+        let document = roxmltree::Document::parse(text)
+            .map_err(|_| WebError::BadRequest("Uploaded SVG file is invalid XML".to_string()))?;
+        if document.root_element().tag_name().name() != "svg" {
+            return Err(WebError::BadRequest(
+                "Uploaded SVG file must have an <svg> root element".to_string(),
+            ));
+        }
+        return Ok(());
+    }
+
+    image::load_from_memory(bytes)
+        .map(|_| ())
+        .map_err(|_| WebError::BadRequest("Uploaded file is not a valid image".to_string()))
 }
 
 #[derive(Clone, Copy)]
@@ -795,6 +878,11 @@ async fn index(
         } else {
             format!("/new-file?path={}", urlencoding::encode(path))
         },
+        upload_image_url: if path.is_empty() {
+            "/upload-image".to_string()
+        } else {
+            format!("/upload-image?path={}", urlencoding::encode(path))
+        },
         entries: build_directory_entry_views(&entries),
     })
 }
@@ -846,6 +934,107 @@ async fn create_new_file(
     Ok(Redirect::to(&format!(
         "/edit?path={}",
         urlencoding::encode(&new_relative_path)
+    )))
+}
+
+async fn upload_image_form(
+    Query(params): Query<HashMap<String, String>>,
+    State(state): State<AppState>,
+) -> Result<UploadImageTemplate, WebError> {
+    let path = params.get("path").map(|s| s.as_str()).unwrap_or("");
+    validate_directory_path(&state.target_dir, path)?;
+
+    Ok(UploadImageTemplate {
+        current_path_display: if path.is_empty() {
+            "/".to_string()
+        } else {
+            format!("/{}", path)
+        },
+        path_value: path.to_string(),
+        back_url: if path.is_empty() {
+            "/".to_string()
+        } else {
+            format!("/?path={}", urlencoding::encode(path))
+        },
+        csrf_token: generate_csrf_token(&state.csrf_secret),
+        max_upload_size: format_file_size(state.max_upload_size_bytes as u64),
+    })
+}
+
+async fn upload_image(
+    State(state): State<AppState>,
+    mut multipart: Multipart,
+) -> Result<Redirect, WebError> {
+    let mut path = String::new();
+    let mut csrf_token = String::new();
+    let mut image_file_name: Option<String> = None;
+    let mut image_bytes: Option<Vec<u8>> = None;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|err| WebError::BadRequest(format!("Invalid multipart payload: {err}")))?
+    {
+        let field_name = field.name().unwrap_or("").to_string();
+        match field_name.as_str() {
+            "path" => {
+                path = field
+                    .text()
+                    .await
+                    .map_err(|err| WebError::BadRequest(format!("Invalid path field: {err}")))?;
+            }
+            "csrf_token" => {
+                csrf_token = field.text().await.map_err(|err| {
+                    WebError::BadRequest(format!("Invalid CSRF token field: {err}"))
+                })?;
+            }
+            "image" => {
+                image_file_name = field.file_name().map(ToString::to_string);
+                let bytes = field.bytes().await.map_err(|err| {
+                    WebError::BadRequest(format!("Invalid image upload field: {err}"))
+                })?;
+                image_bytes = Some(bytes.to_vec());
+            }
+            _ => {}
+        }
+    }
+
+    if csrf_token.is_empty() {
+        return Err(WebError::BadRequest("Missing CSRF token".to_string()));
+    }
+    validate_csrf_token(&csrf_token, &state.csrf_secret)?;
+
+    let canonical_dir = validate_directory_path(&state.target_dir, &path)?;
+    let raw_image_file_name =
+        image_file_name.ok_or(WebError::BadRequest("Image file is required".to_string()))?;
+    let normalized_image_file_name = normalize_image_filename(&raw_image_file_name)?;
+    let image_bytes = image_bytes.ok_or(WebError::BadRequest(
+        "Image file payload is required".to_string(),
+    ))?;
+
+    if image_bytes.len() > state.max_upload_size_bytes {
+        return Err(WebError::BadRequest(format!(
+            "Uploaded image exceeds maximum size of {}",
+            format_file_size(state.max_upload_size_bytes as u64)
+        )));
+    }
+    validate_image_bytes(&normalized_image_file_name, &image_bytes)?;
+
+    let full_path = canonical_dir.join(&normalized_image_file_name);
+    if fs::try_exists(&full_path).await? {
+        return Err(WebError::BadRequest("File already exists".to_string()));
+    }
+
+    fs::write(&full_path, image_bytes).await?;
+
+    let relative_path = if path.is_empty() {
+        normalized_image_file_name
+    } else {
+        format!("{}/{}", path, normalized_image_file_name)
+    };
+    Ok(Redirect::to(&format!(
+        "/preview?path={}",
+        urlencoding::encode(&relative_path)
     )))
 }
 
@@ -1170,6 +1359,7 @@ fn create_router(state: AppState) -> Router {
     Router::new()
         .route("/", get(index))
         .route("/new-file", get(new_file_form).post(create_new_file))
+        .route("/upload-image", get(upload_image_form).post(upload_image))
         .route("/edit", get(edit_file))
         .route("/save", post(save_file))
         .route("/delete", post(delete_file))
@@ -1184,12 +1374,16 @@ fn create_router(state: AppState) -> Router {
         .with_state(state)
 }
 
-pub async fn start_server(target_dir: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn start_server(
+    target_dir: PathBuf,
+    max_upload_size_bytes: usize,
+) -> Result<(), Box<dyn std::error::Error>> {
     // Generate a random CSRF secret
     let csrf_secret = hex::encode(rand::rng().random::<[u8; 32]>());
     let state = AppState {
         target_dir,
         csrf_secret,
+        max_upload_size_bytes,
     };
     let app = create_router(state);
 
@@ -1217,15 +1411,23 @@ mod tests {
     use tempfile::TempDir;
     use tower::ServiceExt;
 
-    async fn create_test_app() -> (Router, TempDir, String) {
+    const DEFAULT_MAX_UPLOAD_SIZE_BYTES: usize = 1_048_576;
+    async fn create_test_app_with_max_upload_size(
+        max_upload_size_bytes: usize,
+    ) -> (Router, TempDir, String) {
         let temp_dir = TempDir::new().expect("failed to create temporary test directory");
         let csrf_secret = "test_secret_key_for_csrf_testing".to_string();
         let state = AppState {
             target_dir: temp_dir.path().to_path_buf(),
             csrf_secret: csrf_secret.clone(),
+            max_upload_size_bytes,
         };
         let app = create_router(state);
         (app, temp_dir, csrf_secret)
+    }
+
+    async fn create_test_app() -> (Router, TempDir, String) {
+        create_test_app_with_max_upload_size(DEFAULT_MAX_UPLOAD_SIZE_BYTES).await
     }
 
     fn create_expired_csrf_token(secret: &str) -> String {
@@ -1261,6 +1463,48 @@ mod tests {
         let remainder = &html[start..];
         let end = remainder.find('"')?;
         Some(remainder[..end].to_string())
+    }
+
+    fn build_upload_multipart_body(
+        boundary: &str,
+        path: &str,
+        csrf_token: &str,
+        file_name: &str,
+        file_bytes: &[u8],
+    ) -> Vec<u8> {
+        let mut body = Vec::new();
+        body.extend_from_slice(
+            format!(
+                "--{boundary}\r\nContent-Disposition: form-data; name=\"path\"\r\n\r\n{path}\r\n"
+            )
+            .as_bytes(),
+        );
+        body.extend_from_slice(
+            format!(
+                "--{boundary}\r\nContent-Disposition: form-data; name=\"csrf_token\"\r\n\r\n{csrf_token}\r\n"
+            )
+            .as_bytes(),
+        );
+        body.extend_from_slice(
+            format!(
+                "--{boundary}\r\nContent-Disposition: form-data; name=\"image\"; filename=\"{file_name}\"\r\nContent-Type: application/octet-stream\r\n\r\n"
+            )
+            .as_bytes(),
+        );
+        body.extend_from_slice(file_bytes);
+        body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+        body
+    }
+
+    fn create_valid_png_bytes() -> Vec<u8> {
+        let image = image::RgbaImage::from_pixel(1, 1, image::Rgba([255, 0, 0, 255]));
+        let dynamic_image = image::DynamicImage::ImageRgba8(image);
+        let mut bytes = Vec::new();
+        let mut cursor = std::io::Cursor::new(&mut bytes);
+        dynamic_image
+            .write_to(&mut cursor, image::ImageFormat::Png)
+            .expect("failed to encode valid png bytes for test");
+        bytes
     }
 
     #[test]
@@ -1975,6 +2219,216 @@ draft: true
     }
 
     #[tokio::test]
+    async fn test_upload_image_form_contains_path_csrf_and_size_hint() {
+        let (app, temp_dir, _) = create_test_app().await;
+
+        let nested_dir = temp_dir.path().join("posts");
+        fs::create_dir(&nested_dir)
+            .await
+            .expect("Failed to create nested directory");
+
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/upload-image?path=posts")
+            .body(Body::empty())
+            .expect("Failed to build upload-image request");
+
+        let response = app.oneshot(request).await.expect("Failed to send request");
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("Failed to collect response body")
+            .to_bytes();
+        let html =
+            String::from_utf8(body.to_vec()).expect("Failed to parse response body as UTF-8");
+        assert!(html.contains(r#"name="csrf_token""#));
+        assert!(html.contains(r#"name="path" value="posts""#));
+        assert!(html.contains("Maximum upload size: 1.0 MB"));
+    }
+
+    #[tokio::test]
+    async fn test_upload_image_with_valid_png_redirects_to_preview() {
+        let (app, temp_dir, _) = create_test_app().await;
+
+        let nested_dir = temp_dir.path().join("posts");
+        fs::create_dir(&nested_dir)
+            .await
+            .expect("Failed to create nested directory");
+
+        let get_form_request = Request::builder()
+            .method(Method::GET)
+            .uri("/upload-image?path=posts")
+            .body(Body::empty())
+            .expect("Failed to build upload-image form request");
+        let get_form_response = app
+            .clone()
+            .oneshot(get_form_request)
+            .await
+            .expect("Failed to request upload-image form");
+        assert_eq!(get_form_response.status(), StatusCode::OK);
+        let get_form_body = get_form_response
+            .into_body()
+            .collect()
+            .await
+            .expect("Failed to collect upload-image form response body")
+            .to_bytes();
+        let get_form_html = String::from_utf8(get_form_body.to_vec())
+            .expect("Failed to parse upload-image form response body");
+        let csrf_token = extract_csrf_token_from_html(&get_form_html)
+            .expect("Upload-image form should include csrf token");
+
+        let boundary = "----markdownwranglerupload";
+        let valid_png_bytes = create_valid_png_bytes();
+        let body = build_upload_multipart_body(
+            boundary,
+            "posts",
+            &csrf_token,
+            "kitten.png",
+            &valid_png_bytes,
+        );
+        let upload_request = Request::builder()
+            .method(Method::POST)
+            .uri("/upload-image")
+            .header(
+                "content-type",
+                format!("multipart/form-data; boundary={boundary}"),
+            )
+            .body(Body::from(body))
+            .expect("Failed to build upload-image post request");
+        let upload_response = app
+            .oneshot(upload_request)
+            .await
+            .expect("Failed to send upload-image post request");
+        assert_eq!(upload_response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            upload_response
+                .headers()
+                .get("location")
+                .and_then(|value| value.to_str().ok()),
+            Some("/preview?path=posts%2Fkitten.png")
+        );
+
+        let uploaded_path = nested_dir.join("kitten.png");
+        assert!(uploaded_path.exists());
+        let uploaded_bytes = fs::read(&uploaded_path)
+            .await
+            .expect("Failed to read uploaded image");
+        assert_eq!(uploaded_bytes, valid_png_bytes);
+    }
+
+    #[tokio::test]
+    async fn test_upload_image_rejects_files_larger_than_limit() {
+        let (app, temp_dir, _) = create_test_app_with_max_upload_size(8).await;
+
+        let get_form_request = Request::builder()
+            .method(Method::GET)
+            .uri("/upload-image")
+            .body(Body::empty())
+            .expect("Failed to build upload-image form request");
+        let get_form_response = app
+            .clone()
+            .oneshot(get_form_request)
+            .await
+            .expect("Failed to request upload-image form");
+        let get_form_body = get_form_response
+            .into_body()
+            .collect()
+            .await
+            .expect("Failed to collect upload-image form response body")
+            .to_bytes();
+        let get_form_html = String::from_utf8(get_form_body.to_vec())
+            .expect("Failed to parse upload-image form response body");
+        let csrf_token = extract_csrf_token_from_html(&get_form_html)
+            .expect("Upload-image form should include csrf token");
+
+        let boundary = "----markdownwrangleruploadlimit";
+        let valid_png_bytes = create_valid_png_bytes();
+        let body =
+            build_upload_multipart_body(boundary, "", &csrf_token, "big.png", &valid_png_bytes);
+        let upload_request = Request::builder()
+            .method(Method::POST)
+            .uri("/upload-image")
+            .header(
+                "content-type",
+                format!("multipart/form-data; boundary={boundary}"),
+            )
+            .body(Body::from(body))
+            .expect("Failed to build upload-image post request");
+        let upload_response = app
+            .oneshot(upload_request)
+            .await
+            .expect("Failed to send upload-image post request");
+        assert_eq!(upload_response.status(), StatusCode::BAD_REQUEST);
+        let upload_body = upload_response
+            .into_body()
+            .collect()
+            .await
+            .expect("Failed to collect upload-image rejection body")
+            .to_bytes();
+        let body_text = String::from_utf8(upload_body.to_vec())
+            .expect("Failed to decode upload-image rejection body");
+        assert!(body_text.contains("maximum size"));
+
+        let uploaded_path = temp_dir.path().join("big.png");
+        assert!(!uploaded_path.exists());
+    }
+
+    #[tokio::test]
+    async fn test_upload_image_rejects_invalid_image_bytes() {
+        let (app, temp_dir, _) = create_test_app().await;
+
+        let get_form_request = Request::builder()
+            .method(Method::GET)
+            .uri("/upload-image")
+            .body(Body::empty())
+            .expect("Failed to build upload-image form request");
+        let get_form_response = app
+            .clone()
+            .oneshot(get_form_request)
+            .await
+            .expect("Failed to request upload-image form");
+        let get_form_body = get_form_response
+            .into_body()
+            .collect()
+            .await
+            .expect("Failed to collect upload-image form response body")
+            .to_bytes();
+        let get_form_html = String::from_utf8(get_form_body.to_vec())
+            .expect("Failed to parse upload-image form response body");
+        let csrf_token = extract_csrf_token_from_html(&get_form_html)
+            .expect("Upload-image form should include csrf token");
+
+        let boundary = "----markdownwrangleruploadinvalid";
+        let body = build_upload_multipart_body(
+            boundary,
+            "",
+            &csrf_token,
+            "broken.png",
+            b"this is not an image",
+        );
+        let upload_request = Request::builder()
+            .method(Method::POST)
+            .uri("/upload-image")
+            .header(
+                "content-type",
+                format!("multipart/form-data; boundary={boundary}"),
+            )
+            .body(Body::from(body))
+            .expect("Failed to build upload-image post request");
+        let upload_response = app
+            .oneshot(upload_request)
+            .await
+            .expect("Failed to send upload-image post request");
+        assert_eq!(upload_response.status(), StatusCode::BAD_REQUEST);
+
+        let uploaded_path = temp_dir.path().join("broken.png");
+        assert!(!uploaded_path.exists());
+    }
+
+    #[tokio::test]
     async fn test_create_new_file_redirects_to_editor() {
         let (app, temp_dir, csrf_secret) = create_test_app().await;
         let csrf_token = generate_csrf_token(&csrf_secret);
@@ -2513,6 +2967,43 @@ draft: true
         assert!(normalize_markdown_filename("bad/name").is_err());
         assert!(normalize_markdown_filename(".hidden").is_err());
         assert!(normalize_markdown_filename("bad..name").is_err());
+    }
+
+    #[test]
+    fn test_normalize_image_filename_handles_valid_and_invalid_inputs() {
+        assert_eq!(
+            normalize_image_filename("photo.png").ok(),
+            Some("photo.png".to_string())
+        );
+        assert_eq!(
+            normalize_image_filename("PHOTO.JPG").ok(),
+            Some("PHOTO.JPG".to_string())
+        );
+        assert!(normalize_image_filename("photo").is_err());
+        assert!(normalize_image_filename("photo.txt").is_err());
+        assert!(normalize_image_filename("../photo.png").is_err());
+        assert!(normalize_image_filename(".hidden.png").is_err());
+        assert!(normalize_image_filename("bad name.png").is_err());
+    }
+
+    #[test]
+    fn test_validate_image_bytes_accepts_valid_png_and_svg() {
+        let valid_png_bytes = create_valid_png_bytes();
+        assert!(validate_image_bytes("pixel.png", &valid_png_bytes).is_ok());
+        assert!(
+            validate_image_bytes(
+                "icon.svg",
+                br#"<svg xmlns="http://www.w3.org/2000/svg"></svg>"#
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn test_validate_image_bytes_rejects_invalid_data() {
+        assert!(validate_image_bytes("pixel.png", b"not a png").is_err());
+        assert!(validate_image_bytes("icon.svg", b"<html></html>").is_err());
+        assert!(validate_image_bytes("icon.svg", b"").is_err());
     }
 
     #[test]
