@@ -10,6 +10,7 @@ use askama_web::WebTemplate;
 use axum::{
     Router,
     extract::{Form, Query, State},
+    http::HeaderValue,
     response::{Json, Response},
     routing::{get, post},
 };
@@ -138,9 +139,10 @@ struct FileContent {
 }
 
 pub(crate) fn generate_csrf_token(secret: &str) -> String {
+    #[allow(clippy::expect_used)]
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .expect("Failed to get current time")
         .as_secs();
     let nonce: u64 = rand::rng().random();
 
@@ -165,9 +167,10 @@ pub(crate) fn validate_csrf_token(token: &str, secret: &str) -> Result<(), WebEr
 
     // Check if token is not too old (1 hour)
     if let Ok(timestamp) = timestamp_str.parse::<u64>() {
+        #[allow(clippy::expect_used)]
         let current_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .expect("Failed to get current time")
             .as_secs();
         if current_time - timestamp > 3600 {
             debug!(?timestamp, ?current_time, "CSRF token expired");
@@ -690,12 +693,18 @@ async fn serve_file(
         _ => "text/plain; charset=utf-8",
     };
 
-    Ok(axum::response::Response::builder()
-        .header("Content-Type", content_type)
-        .header("X-Content-Type-Options", "nosniff")
-        .header("X-Frame-Options", "SAMEORIGIN")
-        .body(axum::body::Body::from(file_contents))
-        .unwrap())
+    let mut response = axum::response::Response::new(axum::body::Body::from(file_contents));
+
+    let headers = response.headers_mut();
+    headers.insert("Content-Type", HeaderValue::from_static(content_type));
+
+    headers.insert(
+        "X-Content-Type-Options",
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert("X-Frame-Options", HeaderValue::from_static("SAMEORIGIN"));
+
+    Ok(response)
 }
 
 #[derive(Deserialize)]
@@ -924,7 +933,9 @@ mod tests {
 
         // Create a test markdown file
         let test_file = temp_dir.path().join("test.md");
-        std::fs::write(&test_file, "# Test").unwrap();
+        fs::write(&test_file, "# Test")
+            .await
+            .expect("Failed to write test file");
 
         // Try to save without CSRF token
         let request = Request::builder()
@@ -946,7 +957,9 @@ mod tests {
 
         // Create a test markdown file
         let test_file = temp_dir.path().join("test.md");
-        std::fs::write(&test_file, "# Test").unwrap();
+        fs::write(&test_file, "# Test")
+            .await
+            .expect("Failed to write test file");
 
         // Try to save with invalid CSRF token
         let request = Request::builder()
@@ -964,7 +977,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
-        let body_text = String::from_utf8(body.to_vec()).unwrap();
+        let body_text = String::from_utf8(body.to_vec()).expect("Failed to get response body");
         assert!(
             body_text
                 .to_ascii_lowercase()
@@ -972,7 +985,9 @@ mod tests {
         );
 
         // File should remain unchanged
-        let content = std::fs::read_to_string(&test_file).unwrap();
+        let content = fs::read_to_string(&test_file)
+            .await
+            .expect("failed to read file");
         assert_eq!(content, "# Test");
     }
 
@@ -981,7 +996,9 @@ mod tests {
         let (app, temp_dir, csrf_secret) = create_test_app().await;
 
         let test_file = temp_dir.path().join("test.md");
-        std::fs::write(&test_file, "# Test").unwrap();
+        fs::write(&test_file, "# Test")
+            .await
+            .expect("Failed to write test file");
 
         let expired_token = create_expired_csrf_token(&csrf_secret);
         let body = format!(
@@ -1000,7 +1017,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
-        let body_text = String::from_utf8(body.to_vec()).unwrap();
+        let body_text = String::from_utf8(body.to_vec()).expect("Failed to get response body");
         assert!(
             body_text
                 .to_ascii_lowercase()
@@ -1008,7 +1025,9 @@ mod tests {
         );
 
         // File should remain unchanged
-        let content = std::fs::read_to_string(&test_file).unwrap();
+        let content = fs::read_to_string(&test_file)
+            .await
+            .expect("Failed to read test file");
         assert_eq!(content, "# Test");
     }
 
@@ -1018,7 +1037,9 @@ mod tests {
 
         // Create a test markdown file
         let test_file = temp_dir.path().join("test.md");
-        std::fs::write(&test_file, "# Test").unwrap();
+        fs::write(&test_file, "# Test")
+            .await
+            .expect("Failed to write test file");
 
         // Generate valid CSRF token
         let csrf_token = generate_csrf_token(&csrf_secret);
@@ -1042,7 +1063,9 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
 
         // Verify file content was updated
-        let content = std::fs::read_to_string(&test_file).unwrap();
+        let content = fs::read_to_string(&test_file)
+            .await
+            .expect("Failed to read test file");
         assert_eq!(content, "# Updated Content");
     }
 
@@ -1052,7 +1075,9 @@ mod tests {
 
         // Create a test markdown file
         let test_file = temp_dir.path().join("test.md");
-        std::fs::write(&test_file, "# Test").unwrap();
+        fs::write(&test_file, "# Test")
+            .await
+            .expect("Failed to write test file");
 
         // Try to delete without CSRF token
         let request = Request::builder()
@@ -1077,7 +1102,9 @@ mod tests {
 
         // Create a test markdown file
         let test_file = temp_dir.path().join("test.md");
-        std::fs::write(&test_file, "# Test").unwrap();
+        fs::write(&test_file, "# Test")
+            .await
+            .expect("Failed to write test file");
 
         // Generate valid CSRF token
         let csrf_token = generate_csrf_token(&csrf_secret);
@@ -1109,20 +1136,27 @@ mod tests {
         let (app, temp_dir, _) = create_test_app().await;
 
         let test_file = temp_dir.path().join("test.md");
-        std::fs::write(&test_file, "# Test").unwrap();
+        fs::write(&test_file, "# Test")
+            .await
+            .expect("Failed to write test file");
 
         let request = Request::builder()
             .method(Method::POST)
             .uri("/delete")
             .header("content-type", "application/x-www-form-urlencoded")
             .body(Body::from("path=test.md&csrf_token=invalid"))
-            .unwrap();
+            .expect("Failed to build request");
 
-        let response = app.oneshot(request).await.unwrap();
+        let response = app.oneshot(request).await.expect("Failed to send request");
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
-        let body = response.into_body().collect().await.unwrap().to_bytes();
-        let body_text = String::from_utf8(body.to_vec()).unwrap();
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("Failed to collect response body")
+            .to_bytes();
+        let body_text = String::from_utf8(body.to_vec()).expect("Failed to get response body");
         assert!(
             body_text
                 .to_ascii_lowercase()
@@ -1138,7 +1172,9 @@ mod tests {
         let (app, temp_dir, csrf_secret) = create_test_app().await;
 
         let test_file = temp_dir.path().join("test.md");
-        std::fs::write(&test_file, "# Test").unwrap();
+        fs::write(&test_file, "# Test")
+            .await
+            .expect("Failed to write test file");
 
         let expired_token = create_expired_csrf_token(&csrf_secret);
         let body = format!(
@@ -1156,8 +1192,13 @@ mod tests {
         let response = app.oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
 
-        let body = response.into_body().collect().await.unwrap().to_bytes();
-        let body_text = String::from_utf8(body.to_vec()).unwrap();
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("Failed to collect response body")
+            .to_bytes();
+        let body_text = String::from_utf8(body.to_vec()).expect("Failed to get response body");
         assert!(
             body_text
                 .to_ascii_lowercase()
@@ -1174,21 +1215,29 @@ mod tests {
 
         // Create a test markdown file
         let test_file = temp_dir.path().join("test.md");
-        std::fs::write(&test_file, "# Test Content").unwrap();
+        fs::write(&test_file, "# Test Content")
+            .await
+            .expect("Failed to write test file");
 
         // Request the edit page
         let request = Request::builder()
             .method(Method::GET)
             .uri("/edit?path=test.md")
             .body(Body::empty())
-            .unwrap();
+            .expect("Failed to build request");
 
-        let response = app.oneshot(request).await.unwrap();
+        let response = app.oneshot(request).await.expect("Failed to send request");
         assert_eq!(response.status(), StatusCode::OK);
 
         // Get response body
-        let body = response.into_body().collect().await.unwrap().to_bytes();
-        let html = String::from_utf8(body.to_vec()).unwrap();
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("Failed to collect response body")
+            .to_bytes();
+        let html =
+            String::from_utf8(body.to_vec()).expect("Failed to parse response body as UTF-8");
 
         // Verify CSRF token is present in both forms
         assert!(html.contains(r#"name="csrf_token""#));
@@ -1203,19 +1252,27 @@ mod tests {
         let (app, temp_dir, _) = create_test_app().await;
 
         let test_file = temp_dir.path().join("image.png");
-        std::fs::write(&test_file, "fake image data").unwrap();
+        fs::write(&test_file, "fake image data")
+            .await
+            .expect("Failed to write test file");
 
         let request = Request::builder()
             .method(Method::GET)
             .uri("/preview?path=image.png")
             .body(Body::empty())
-            .unwrap();
+            .expect("Failed to build request");
 
-        let response = app.oneshot(request).await.unwrap();
+        let response = app.oneshot(request).await.expect("Failed to send request");
         assert_eq!(response.status(), StatusCode::OK);
 
-        let body = response.into_body().collect().await.unwrap().to_bytes();
-        let html = String::from_utf8(body.to_vec()).unwrap();
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("Failed to collect response body")
+            .to_bytes();
+        let html =
+            String::from_utf8(body.to_vec()).expect("Failed to parse response body as UTF-8");
         assert!(html.contains(r#"name="csrf_token""#));
     }
 
@@ -1224,19 +1281,27 @@ mod tests {
         let (app, temp_dir, _) = create_test_app().await;
 
         let test_file = temp_dir.path().join("notes.txt");
-        std::fs::write(&test_file, "hello").unwrap();
+        fs::write(&test_file, "hello")
+            .await
+            .expect("Failed to write test file");
 
         let request = Request::builder()
             .method(Method::GET)
             .uri("/file-preview?path=notes.txt")
             .body(Body::empty())
-            .unwrap();
+            .expect("Failed to build request");
 
-        let response = app.oneshot(request).await.unwrap();
+        let response = app.oneshot(request).await.expect("Failed to send request");
         assert_eq!(response.status(), StatusCode::OK);
 
-        let body = response.into_body().collect().await.unwrap().to_bytes();
-        let html = String::from_utf8(body.to_vec()).unwrap();
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("Failed to collect response body")
+            .to_bytes();
+        let html =
+            String::from_utf8(body.to_vec()).expect("Failed to parse response body as UTF-8");
         assert!(html.contains(r#"name="csrf_token""#));
     }
 
