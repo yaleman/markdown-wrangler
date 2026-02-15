@@ -51,9 +51,9 @@ just docker_build          # Build container image
 
 1. **CLI parsing/validation** (`src/cli.rs`)
 2. **Tracing initialization** (`src/logging/mod.rs`)
-3. **Web server startup** (`src/web.rs`) on `127.0.0.1:5420`
+3. **Web server startup** (`src/web/mod.rs`) on `127.0.0.1:5420`
 
-### Routing (`src/web.rs`)
+### Routing (`src/web/mod.rs`)
 
 - `GET /` - Directory browser
 - `GET /edit?path=...` - Markdown editor
@@ -77,7 +77,7 @@ just docker_build          # Build container image
 - Secret is generated at startup from random bytes.
 - Current signature algorithm is HMAC-SHA256 over `"{timestamp}:{nonce}"`,
   implemented in `generate_csrf_token()` /
-  `validate_csrf_token()` in `src/web.rs`.
+  `validate_csrf_token()` in `src/web/mod.rs`.
 
 **File Safety:**
 
@@ -86,7 +86,7 @@ just docker_build          # Build container image
 - Executables are blocked from preview/serving routes.
 - Iframe serving is extension allowlisted via `IFRAME_SAFE_EXTENSIONS`.
 
-### Key Functions in `src/web.rs`
+### Key Functions in `src/web/mod.rs`
 
 **Route handlers:**
 
@@ -105,13 +105,9 @@ just docker_build          # Build container image
 
 **HTML generation:**
 
-- HTML is built server-side with string formatting (no Askama templates in use).
-- Main functions:
-  - `generate_editor_html()`
-  - `generate_directory_html()`
-  - `generate_image_preview_html()`
-  - `generate_file_preview_html()`
-- `html_escape` is used for user/path content embedded into HTML.
+- HTML is rendered with Askama templates in `templates/`.
+- Template structs are defined in `src/web/mod.rs` (for directory, editor,
+  image preview, file preview, and status pages).
 
 ### Static Assets (`/static`)
 
@@ -122,7 +118,7 @@ just docker_build          # Build container image
 
 ## Testing Strategy
 
-- Unit + integration tests are colocated in `src/web.rs`.
+- Unit + integration tests are colocated in `src/web/mod.rs`.
 - CSRF coverage includes generation, validity, malformed/expired token handling.
 - Endpoint tests verify protected route behavior and editor token injection.
 - Integration tests use:

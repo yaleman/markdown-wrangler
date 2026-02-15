@@ -59,12 +59,13 @@ Use `just` for common development tasks:
 
 ```bash
 just --list              # Show all available commands
-just lint                # Run Rust linting (clippy)
-just lint-js             # Run JavaScript linting (eslint)  
+just clippy              # Run Rust linting (clippy)
+just lint_js             # Run JavaScript linting (eslint)
 just test                # Run Rust tests
 just check               # Run all quality checks (lint + test)
-just fmt                 # Format JavaScript files
-just docker-build        # Build Docker container
+just fmt                 # Check Rust formatting
+just docker_build        # Build Docker container
+pnpm run lint            # Direct JavaScript linting
 ```
 
 ### Code Quality
@@ -108,7 +109,7 @@ The binary will be available at `target/release/markdown-wrangler`.
 
 Build the Docker container:
 ```bash
-just docker-build
+just docker_build
 # or
 docker build -t ghcr.io/yaleman/markdown-wrangler:latest .
 ```
@@ -173,13 +174,22 @@ The application supports OpenTelemetry tracing. Configure with standard OpenTele
 ```
 ├── src/
 │   ├── main.rs           # Application entry point
+│   ├── lib.rs            # Crate modules
 │   ├── cli.rs            # Command line argument parsing
-│   ├── log_wrangler.rs   # Tracing and OpenTelemetry setup
-│   └── web.rs            # Web server and HTTP routing
+│   ├── logging/          # Tracing and OpenTelemetry setup
+│   │   ├── mod.rs
+│   │   └── consoleexporter.rs
+│   └── web/              # Web server, handlers, and helpers
+│       ├── mod.rs
+│       ├── constants.rs
+│       └── error.rs
 ├── static/
 │   ├── editor.js         # Markdown editor functionality
 │   ├── editor-storage.js # Local storage and draft management
+│   ├── delete.js         # Delete confirmation helper
+│   ├── image-preview.js  # Image preview helper
 │   └── styles.css        # Application styles
+├── templates/            # Askama HTML templates
 ├── .github/workflows/    # CI/CD pipelines
 ├── Dockerfile           # Multi-stage container build
 ├── justfile            # Development commands
