@@ -5,7 +5,10 @@
         <link rel="stylesheet" href="/static/styles.css">
     </head>
     <body>
-        <h3>📝 Edit Markdown File</h3>
+        <h3>
+            📝 Edit Markdown File
+            {% if is_draft %}<span class="draft-flag" title="Frontmatter has draft set to true">🚩 Draft</span>{% endif %}
+        </h3>
         <div class="breadcrumb">
             <a href="/">← Back to file browser</a> | 📄 {{ file_path }}
         </div>

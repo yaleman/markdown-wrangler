@@ -80,6 +80,7 @@ struct EditorTemplate {
     file_path: String,
     content: String,
     csrf_token: String,
+    is_draft: bool,
 }
 
 #[derive(Template, WebTemplate)]
@@ -394,6 +395,221 @@ fn is_markdown_file(path: &str) -> bool {
     path.to_lowercase().ends_with(".md") || path.to_lowercase().ends_with(".markdown")
 }
 
+#[derive(Clone, Copy)]
+enum FrontmatterFormat {
+    Yaml,
+    Json,
+}
+
+type ParsedFrontmatter = (
+    Option<bool>,
+    Option<String>,
+    Option<String>,
+    Vec<String>,
+    Vec<String>,
+    HashMap<String, serde_json::Value>,
+);
+
+fn extract_yaml_frontmatter(content: &str) -> Option<&str> {
+    let start = if content.starts_with("---\n") {
+        4
+    } else if content.starts_with("---\r\n") {
+        5
+    } else {
+        return None;
+    };
+
+    let rest = &content[start..];
+    let mut offset = start;
+    for line in rest.split('\n') {
+        if line.trim_end_matches('\r').trim() == "---" {
+            return Some(&content[start..offset]);
+        }
+
+        offset = std::cmp::min(content.len(), offset + line.len() + 1);
+    }
+
+    None
+}
+
+fn extract_json_frontmatter(content: &str) -> Option<&str> {
+    if !content.starts_with('{') {
+        return None;
+    }
+
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escape_next = false;
+
+    for (idx, ch) in content.char_indices() {
+        if in_string {
+            if escape_next {
+                escape_next = false;
+            } else if ch == '\\' {
+                escape_next = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+
+        match ch {
+            '"' => in_string = true,
+            '{' => depth = depth.saturating_add(1),
+            '}' => {
+                if depth == 0 {
+                    return None;
+                }
+
+                depth -= 1;
+                if depth == 0 {
+                    let object_end = idx + ch.len_utf8();
+                    let remainder = &content[object_end..];
+
+                    if remainder.is_empty() {
+                        return Some(&content[..object_end]);
+                    }
+
+                    let after_ws = remainder.trim_start_matches([' ', '\t', '\r']);
+                    if after_ws.starts_with('\n') {
+                        return Some(&content[..object_end]);
+                    }
+
+                    return None;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
+}
+
+fn extract_frontmatter(content: &str) -> Option<(FrontmatterFormat, &str)> {
+    if let Some(frontmatter) = extract_yaml_frontmatter(content) {
+        return Some((FrontmatterFormat::Yaml, frontmatter));
+    }
+
+    if let Some(frontmatter) = extract_json_frontmatter(content) {
+        return Some((FrontmatterFormat::Json, frontmatter));
+    }
+
+    None
+}
+
+fn parse_bool_value(value: &serde_json::Value) -> Option<bool> {
+    if let Some(boolean) = value.as_bool() {
+        return Some(boolean);
+    }
+
+    if let Some(text) = value.as_str() {
+        let normalized = text.trim().to_ascii_lowercase();
+        return match normalized.as_str() {
+            "true" | "yes" | "on" | "1" => Some(true),
+            "false" | "no" | "off" | "0" => Some(false),
+            _ => None,
+        };
+    }
+
+    if let Some(number) = value.as_i64() {
+        return match number {
+            0 => Some(false),
+            1 => Some(true),
+            _ => None,
+        };
+    }
+
+    if let Some(number) = value.as_u64() {
+        return match number {
+            0 => Some(false),
+            1 => Some(true),
+            _ => None,
+        };
+    }
+
+    None
+}
+
+fn parse_string_value(value: &serde_json::Value) -> Option<String> {
+    let maybe_string = if let Some(text) = value.as_str() {
+        Some(text.trim().to_string())
+    } else if let Some(number) = value.as_i64() {
+        Some(number.to_string())
+    } else if let Some(number) = value.as_u64() {
+        Some(number.to_string())
+    } else if let Some(number) = value.as_f64() {
+        Some(number.to_string())
+    } else {
+        value.as_bool().map(|boolean| boolean.to_string())
+    };
+
+    maybe_string.filter(|text| !text.is_empty())
+}
+
+fn parse_string_list_value(value: &serde_json::Value) -> Vec<String> {
+    if let Some(items) = value.as_array() {
+        return items.iter().filter_map(parse_string_value).collect();
+    }
+
+    if let Some(text) = value.as_str() {
+        if text.contains(',') {
+            return text
+                .split(',')
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .map(ToString::to_string)
+                .collect();
+        }
+
+        let trimmed = text.trim();
+        if !trimmed.is_empty() {
+            return vec![trimmed.to_string()];
+        }
+
+        return Vec::new();
+    }
+
+    parse_string_value(value).map_or_else(Vec::new, |item| vec![item])
+}
+
+fn parse_frontmatter(content: &str) -> Option<ParsedFrontmatter> {
+    let (format, frontmatter) = extract_frontmatter(content)?;
+
+    let parsed_value = match format {
+        FrontmatterFormat::Yaml => serde_yaml::from_str::<serde_json::Value>(frontmatter).ok()?,
+        FrontmatterFormat::Json => serde_json::from_str::<serde_json::Value>(frontmatter).ok()?,
+    };
+
+    let serde_json::Value::Object(mut object) = parsed_value else {
+        return None;
+    };
+
+    let draft = object.remove("draft").as_ref().and_then(parse_bool_value);
+    let title = object.remove("title").as_ref().and_then(parse_string_value);
+    let date = object.remove("date").as_ref().and_then(parse_string_value);
+    let tags = object
+        .remove("tags")
+        .as_ref()
+        .map_or_else(Vec::new, parse_string_list_value);
+    let categories = object
+        .remove("categories")
+        .as_ref()
+        .map_or_else(Vec::new, parse_string_list_value);
+    let extra = object
+        .into_iter()
+        .collect::<HashMap<String, serde_json::Value>>();
+
+    Some((draft, title, date, tags, categories, extra))
+}
+
+fn has_draft_frontmatter(content: &str) -> bool {
+    if let Some((draft, _, _, _, _, _)) = parse_frontmatter(content) {
+        return draft.unwrap_or(false);
+    }
+
+    false
+}
+
 async fn get_file_size(file_path: &Path) -> Result<u64, std::io::Error> {
     fs::metadata(file_path).await.map(|metadata| metadata.len())
 }
@@ -649,12 +865,14 @@ async fn edit_file(
 
     let full_path = validate_file_path(&state.target_dir, file_path)?;
 
-    let content = tokio::fs::read_to_string(&full_path).await?;
+    let content = fs::read_to_string(&full_path).await?;
+    let is_draft = has_draft_frontmatter(&content);
     let csrf_token = generate_csrf_token(&state.csrf_secret);
     Ok(EditorTemplate {
         file_path: file_path.to_string(),
         content,
         csrf_token,
+        is_draft,
     })
 }
 
@@ -673,7 +891,7 @@ async fn save_file(
 
     let full_path = validate_file_path(&state.target_dir, &form.path)?;
     // Read existing content to check if it has changed
-    let existing_content = tokio::fs::read_to_string(&full_path).await?;
+    let existing_content = fs::read_to_string(&full_path).await?;
     if existing_content == form.content {
         // Content hasn't changed, don't write to disk
         info!("File content unchanged, skipping write: {}", form.path);
@@ -929,7 +1147,7 @@ async fn delete_file(
 
     // Validate the file path
     let full_path = validate_file_path(&state.target_dir, &form.path)?;
-    tokio::fs::remove_file(&full_path).await?;
+    fs::remove_file(&full_path).await?;
     info!("File deleted successfully: {}", form.path);
     let back_url = get_parent_directory_path(&form.path);
     Ok(StatusPageTemplate {
@@ -1116,6 +1334,146 @@ mod tests {
         // Token with invalid timestamp should fail validation
         let invalid_token = "invalid_timestamp:12345:signature";
         assert!(validate_csrf_token(invalid_token, secret).is_err());
+    }
+
+    #[test]
+    fn test_has_draft_frontmatter_with_yaml_true() {
+        let content = r#"---
+title: Post
+draft: true
+---
+# Hello
+"#;
+        assert!(has_draft_frontmatter(content));
+    }
+
+    #[test]
+    fn test_has_draft_frontmatter_with_yaml_false() {
+        let content = r#"---
+title: Post
+draft: false
+---
+# Hello
+"#;
+        assert!(!has_draft_frontmatter(content));
+    }
+
+    #[test]
+    fn test_has_draft_frontmatter_with_json_true() {
+        let content = r#"{
+  "title": "Post",
+  "draft": true
+}
+# Hello
+"#;
+        assert!(has_draft_frontmatter(content));
+    }
+
+    #[test]
+    fn test_has_draft_frontmatter_with_json_false() {
+        let content = r#"{
+  "title": "Post",
+  "draft": false
+}
+# Hello
+"#;
+        assert!(!has_draft_frontmatter(content));
+    }
+
+    #[test]
+    fn test_parse_frontmatter_yaml_collects_standard_fields_and_extra() {
+        let content = r#"---
+title: "Post Title"
+date: "2026-02-15"
+draft: true
+tags:
+  - rust
+  - web
+categories: docs
+custom_score: 42
+author:
+  name: James
+---
+# Hello
+"#;
+
+        let parsed = parse_frontmatter(content).expect("yaml frontmatter should parse");
+        let (draft, title, date, tags, categories, extra) = parsed;
+
+        assert_eq!(draft, Some(true));
+        assert_eq!(title, Some("Post Title".to_string()));
+        assert_eq!(date, Some("2026-02-15".to_string()));
+        assert_eq!(tags, vec!["rust".to_string(), "web".to_string()]);
+        assert_eq!(categories, vec!["docs".to_string()]);
+        assert_eq!(
+            extra.get("custom_score").and_then(|value| value.as_i64()),
+            Some(42)
+        );
+        assert!(extra.contains_key("author"));
+    }
+
+    #[test]
+    fn test_parse_frontmatter_json_collects_standard_fields_and_extra() {
+        let content = r#"{
+  "title": "Post Title",
+  "date": "2026-02-15",
+  "draft": "true",
+  "tags": "rust, web",
+  "categories": ["docs", "guides"],
+  "custom_score": 42
+}
+# Hello
+"#;
+
+        let parsed = parse_frontmatter(content).expect("json frontmatter should parse");
+        let (draft, title, date, tags, categories, extra) = parsed;
+
+        assert_eq!(draft, Some(true));
+        assert_eq!(title, Some("Post Title".to_string()));
+        assert_eq!(date, Some("2026-02-15".to_string()));
+        assert_eq!(tags, vec!["rust".to_string(), "web".to_string()]);
+        assert_eq!(categories, vec!["docs".to_string(), "guides".to_string()]);
+        assert_eq!(
+            extra.get("custom_score").and_then(|value| value.as_i64()),
+            Some(42)
+        );
+    }
+
+    #[test]
+    fn test_parse_frontmatter_without_frontmatter_returns_none() {
+        let content = "# Just markdown\n\nNo frontmatter.";
+        assert!(parse_frontmatter(content).is_none());
+    }
+
+    #[test]
+    fn test_has_draft_frontmatter_with_unterminated_yaml() {
+        let content = r#"---
+title: Post
+draft: true
+# Hello
+"#;
+        assert!(!has_draft_frontmatter(content));
+    }
+
+    #[test]
+    fn test_has_draft_frontmatter_with_unterminated_json() {
+        let content = r#"{
+  "title": "Post",
+  "draft": true
+# Hello
+"#;
+        assert!(!has_draft_frontmatter(content));
+    }
+
+    #[test]
+    fn test_has_draft_frontmatter_with_invalid_json_syntax() {
+        let content = r#"{
+  "title": "Post",
+  "draft": tru
+}
+# Hello
+"#;
+        assert!(!has_draft_frontmatter(content));
     }
 
     #[tokio::test]
@@ -1467,6 +1825,99 @@ mod tests {
         // Should have at least 2 CSRF token fields (save form and delete form)
         let csrf_count = html.matches(r#"name="csrf_token""#).count();
         assert_eq!(csrf_count, 2);
+    }
+
+    #[tokio::test]
+    async fn test_edit_page_shows_draft_flag_for_yaml_frontmatter() {
+        let (app, temp_dir, _) = create_test_app().await;
+        let test_file = temp_dir.path().join("test.md");
+        fs::write(
+            &test_file,
+            "---\ntitle: Test\ndraft: true\n---\n# Test Content",
+        )
+        .await
+        .expect("Failed to write test file with yaml frontmatter");
+
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/edit?path=test.md")
+            .body(Body::empty())
+            .expect("Failed to build request");
+
+        let response = app.oneshot(request).await.expect("Failed to send request");
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("Failed to collect response body")
+            .to_bytes();
+        let html =
+            String::from_utf8(body.to_vec()).expect("Failed to parse response body as UTF-8");
+        assert!(html.contains(r#"class="draft-flag""#));
+    }
+
+    #[tokio::test]
+    async fn test_edit_page_shows_draft_flag_for_json_frontmatter() {
+        let (app, temp_dir, _) = create_test_app().await;
+        let test_file = temp_dir.path().join("test.md");
+        fs::write(
+            &test_file,
+            "{\n  \"title\": \"Test\",\n  \"draft\": true\n}\n# Test Content",
+        )
+        .await
+        .expect("Failed to write test file with json frontmatter");
+
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/edit?path=test.md")
+            .body(Body::empty())
+            .expect("Failed to build request");
+
+        let response = app.oneshot(request).await.expect("Failed to send request");
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("Failed to collect response body")
+            .to_bytes();
+        let html =
+            String::from_utf8(body.to_vec()).expect("Failed to parse response body as UTF-8");
+        assert!(html.contains(r#"class="draft-flag""#));
+    }
+
+    #[tokio::test]
+    async fn test_edit_page_hides_draft_flag_when_not_draft() {
+        let (app, temp_dir, _) = create_test_app().await;
+        let test_file = temp_dir.path().join("test.md");
+        fs::write(
+            &test_file,
+            "---\ntitle: Test\ndraft: false\n---\n# Test Content",
+        )
+        .await
+        .expect("Failed to write test file with non-draft frontmatter");
+
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/edit?path=test.md")
+            .body(Body::empty())
+            .expect("Failed to build request");
+
+        let response = app.oneshot(request).await.expect("Failed to send request");
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("Failed to collect response body")
+            .to_bytes();
+        let html =
+            String::from_utf8(body.to_vec()).expect("Failed to parse response body as UTF-8");
+        assert!(!html.contains(r#"class="draft-flag""#));
     }
 
     #[tokio::test]

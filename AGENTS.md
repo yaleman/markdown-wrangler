@@ -105,6 +105,7 @@ just docker_build          # Build container image
 - `is_image_file()`
 - `is_executable_file()`
 - `is_safe_for_iframe()`
+- `parse_frontmatter()` parses YAML/JSON frontmatter for standard metadata fields.
 
 **HTML generation:**
 
@@ -149,6 +150,8 @@ just docker_build          # Build container image
 **Markdown (`.md`, `.markdown`):**
 
 - Open in editor with live preview, save, and delete flows.
+- Editor shows a draft badge when YAML/JSON frontmatter contains `draft: true`.
+- Frontmatter parser extracts `draft`, `title`, `date`, `tags`, and `categories`; remaining keys are kept as extra metadata.
 
 **Images (`jpg`, `jpeg`, `png`, `gif`, `webp`, `svg`, `bmp`, `tiff`, `tif`):**
 

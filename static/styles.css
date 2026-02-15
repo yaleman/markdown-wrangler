@@ -8,6 +8,19 @@ h1 {
     color: #333;
 }
 
+.draft-flag {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: #fff3cd;
+    border: 1px solid #ffeeba;
+    color: #856404;
+    font-size: 12px;
+    font-weight: 600;
+    vertical-align: middle;
+}
+
 a {
     color: #0066cc;
     text-decoration: none;
