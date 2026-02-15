@@ -1,45 +1,45 @@
 <!DOCTYPE html>
 <html>
-<head>
-    <title>Markdown Wrangler - Edit {{ file_path }}</title>
-    <link rel="stylesheet" href="/static/styles.css">
-</head>
-<body>
-    <h1>📝 Edit Markdown File</h1>
-    <div class="breadcrumb">
-        <a href="/">← Back to file browser</a> | 📄 {{ file_path }}
-    </div>
-
-    <form method="post" action="/save">
-        <input type="hidden" name="path" value="{{ file_path }}" />
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-        <div class="buttons">
-            <button type="submit">💾 Save File</button>
-            <button type="button" class="cancel" onclick="window.location.href='/'">❌ Cancel</button>
-            <button type="button" class="delete-btn" onclick="confirmDelete('{{ file_path }}')">🗑️ Delete File</button>
+    <head>
+        <title>Markdown Wrangler - Edit {{ file_path }}</title>
+        <link rel="stylesheet" href="/static/styles.css">
+    </head>
+    <body>
+        <h3>📝 Edit Markdown File</h3>
+        <div class="breadcrumb">
+            <a href="/">← Back to file browser</a> | 📄 {{ file_path }}
         </div>
 
-        <div class="editor-container">
-            <div class="editor-panel">
-                <h3>📝 Editor</h3>
-                <textarea name="content" placeholder="Enter your markdown content here...">{{ content }}</textarea>
+        <form method="post" action="/save">
+            <input type="hidden" name="path" value="{{ file_path }}" />
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+            <div class="buttons">
+                <button type="submit">💾 Save File</button>
+                <button type="button" class="cancel" onclick="window.location.href='/'">❌ Cancel</button>
+                <button type="button" class="delete-btn" onclick="confirmDelete('{{ file_path }}')">🗑️ Delete File</button>
             </div>
-            <div class="editor-panel">
-                <h3>👁️ Preview</h3>
-                <div class="preview" id="preview">
-                    <p><em>Preview will appear here as you type...</em></p>
+
+            <div class="editor-container">
+                <div class="editor-panel">
+                    <strong>📝 Editor</strong>
+                    <textarea name="content" placeholder="Enter your markdown content here...">{{ content }}</textarea>
+                </div>
+                <div class="editor-panel">
+                    <strong>👁️ Preview</strong>
+                    <div class="preview" id="preview">
+                        <p><em>Preview will appear here as you type...</em></p>
+                    </div>
                 </div>
             </div>
-        </div>
-    </form>
+        </form>
 
-    <form id="deleteForm" method="post" action="/delete" style="display: none;">
-        <input type="hidden" name="path" value="{{ file_path }}" />
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-    </form>
+        <form id="deleteForm" method="post" action="/delete" style="display: none;">
+            <input type="hidden" name="path" value="{{ file_path }}" />
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+        </form>
 
-    <script src="/static/editor.js"></script>
-    <script src="/static/editor-storage.js"></script>
-    <script src="/static/delete.js"></script>
-</body>
+        <script src="/static/editor.js"></script>
+        <script src="/static/editor-storage.js"></script>
+        <script src="/static/delete.js"></script>
+    </body>
 </html>
