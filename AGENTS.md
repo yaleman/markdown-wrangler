@@ -139,10 +139,7 @@ just docker_build          # Build container image
 
 ## Known Gaps (as of current implementation)
 
-- End-to-end test coverage for deleting a file from preview-page context is
-  still missing.
-- Add/adjust frontend tests or lint rules to prevent reintroducing inline
-  JS/CSS policy violations.
+- No major known gaps currently tracked.
 
 ## File Type Handling
 

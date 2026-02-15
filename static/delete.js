@@ -19,3 +19,21 @@ function confirmDelete(filename) {
 		}
 	}
 }
+
+function bindDeleteButtons() {
+	const buttons = document.querySelectorAll("[data-delete-filename]");
+	buttons.forEach((button) => {
+		button.addEventListener("click", () => {
+			const filename = button.getAttribute("data-delete-filename");
+			if (filename) {
+				confirmDelete(filename);
+			}
+		});
+	});
+}
+
+if (document.readyState === "loading") {
+	document.addEventListener("DOMContentLoaded", bindDeleteButtons);
+} else {
+	bindDeleteButtons();
+}

@@ -48,6 +48,10 @@ a:hover {
     margin-right: 8px;
 }
 
+.hidden-form {
+    display: none;
+}
+
 /* Editor Styles */
 .editor-container {
     display: flex;
@@ -111,7 +115,8 @@ textarea {
     margin: 20px 0;
 }
 
-button {
+button,
+.button-link {
     background: #0066cc;
     color: white;
     border: none;
@@ -119,10 +124,15 @@ button {
     margin-right: 10px;
     cursor: pointer;
     border-radius: 4px;
+    display: inline-block;
+    text-decoration: none;
+    font: inherit;
 }
 
-button:hover {
+button:hover,
+.button-link:hover {
     background: #0052a3;
+    text-decoration: none;
 }
 
 .cancel {
@@ -182,7 +192,8 @@ body.center {
     color: #28a745;
 }
 
-button.save-buttons {
+button.save-buttons,
+.button-link.save-buttons {
     margin: 10px;
 }
 

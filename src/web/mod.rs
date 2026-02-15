@@ -1512,6 +1512,81 @@ mod tests {
         assert!(validate_csrf_token(&token3, secret).is_ok());
     }
 
+    #[tokio::test]
+    async fn test_templates_avoid_inline_js_and_css() {
+        let template_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("templates");
+        let mut entries = fs::read_dir(&template_dir)
+            .await
+            .expect("failed to read templates directory");
+
+        let inline_event_attributes = [
+            "onclick=",
+            "onload=",
+            "onerror=",
+            "onsubmit=",
+            "onchange=",
+            "oninput=",
+            "onfocus=",
+            "onblur=",
+            "onkeydown=",
+            "onkeyup=",
+            "onkeypress=",
+            "onmouseover=",
+            "onmouseout=",
+        ];
+
+        while let Some(entry) = entries
+            .next_entry()
+            .await
+            .expect("failed to read templates directory entry")
+        {
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("html") {
+                continue;
+            }
+
+            let content = fs::read_to_string(&path)
+                .await
+                .expect("failed to read template for inline js/css checks");
+            let lower = content.to_ascii_lowercase();
+
+            assert!(
+                !lower.contains("<style"),
+                "template contains inline <style> tag: {}",
+                path.display()
+            );
+            assert!(
+                !lower.contains("style=\""),
+                "template contains inline style attribute: {}",
+                path.display()
+            );
+
+            for attr in inline_event_attributes {
+                assert!(
+                    !lower.contains(attr),
+                    "template contains inline event handler '{}': {}",
+                    attr,
+                    path.display()
+                );
+            }
+
+            let mut search_from = 0;
+            while let Some(rel_index) = lower[search_from..].find("<script") {
+                let start = search_from + rel_index;
+                let tag_end = lower[start..]
+                    .find('>')
+                    .expect("script tag should have a closing angle bracket");
+                let tag = &lower[start..start + tag_end + 1];
+                assert!(
+                    tag.contains("src="),
+                    "template contains inline <script> tag without src: {}",
+                    path.display()
+                );
+                search_from = start + tag_end + 1;
+            }
+        }
+    }
+
     #[test]
     fn test_is_image_file() {
         // Test common image file extensions

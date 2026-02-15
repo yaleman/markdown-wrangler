@@ -9,9 +9,9 @@
     <p>The file <strong>{{ file_path }}</strong> {{ detail_text }}</p>
     <div class="buttons">
         {% if show_edit_button %}
-        <button class="save-buttons" onclick="window.location.href='{{ edit_url }}'">📝 Continue Editing</button>
+        <a class="button-link save-buttons" href="{{ edit_url }}">📝 Continue Editing</a>
         {% endif %}
-        <button class="save-buttons" onclick="window.location.href='{{ back_url }}'">📁 Back to Files</button>
+        <a class="button-link save-buttons" href="{{ back_url }}">📁 Back to Files</a>
     </div>
 </body>
 </html>
