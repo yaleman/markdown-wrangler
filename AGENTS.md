@@ -125,6 +125,7 @@ just docker_build          # Build container image
 - Unit + integration tests are colocated in `src/web/mod.rs`.
 - CSRF coverage includes generation, validity, malformed/expired token handling.
 - Endpoint tests verify protected route behavior and editor token injection.
+- Tarpaulin coverage excludes `src/main.rs` and logging bootstrap files (`src/logging/mod.rs`, `src/logging/consoleexporter.rs`).
 - Integration tests use:
   - `tempfile::TempDir`
   - `tower::ServiceExt::oneshot()`

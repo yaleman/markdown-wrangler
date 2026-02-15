@@ -2210,6 +2210,254 @@ draft: true
         assert!(!test_file.exists());
     }
 
+    #[tokio::test]
+    async fn test_file_info_endpoint_returns_json_metadata() {
+        let (app, temp_dir, _) = create_test_app().await;
+        let test_file = temp_dir.path().join("meta.md");
+        fs::write(&test_file, "# Meta")
+            .await
+            .expect("Failed to write metadata test file");
+
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/file-info?path=meta.md")
+            .body(Body::empty())
+            .expect("Failed to build file-info request");
+
+        let response = app
+            .oneshot(request)
+            .await
+            .expect("Failed to send file-info request");
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("Failed to collect file-info response body")
+            .to_bytes();
+        let json: serde_json::Value =
+            serde_json::from_slice(&body).expect("Failed to decode file-info JSON");
+        assert_eq!(
+            json.get("size").and_then(serde_json::Value::as_u64),
+            Some(6)
+        );
+        assert!(
+            json.get("modified_time")
+                .and_then(serde_json::Value::as_str)
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_file_content_endpoint_returns_json_content() {
+        let (app, temp_dir, _) = create_test_app().await;
+        let test_file = temp_dir.path().join("content.md");
+        fs::write(&test_file, "# Hello")
+            .await
+            .expect("Failed to write content test file");
+
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/file-content?path=content.md")
+            .body(Body::empty())
+            .expect("Failed to build file-content request");
+
+        let response = app
+            .oneshot(request)
+            .await
+            .expect("Failed to send file-content request");
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("Failed to collect file-content response body")
+            .to_bytes();
+        let json: serde_json::Value =
+            serde_json::from_slice(&body).expect("Failed to decode file-content JSON");
+        assert_eq!(
+            json.get("content").and_then(serde_json::Value::as_str),
+            Some("# Hello")
+        );
+        assert!(
+            json.get("modified_time")
+                .and_then(serde_json::Value::as_str)
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_file_content_endpoint_rejects_non_markdown() {
+        let (app, temp_dir, _) = create_test_app().await;
+        let test_file = temp_dir.path().join("notes.txt");
+        fs::write(&test_file, "hello")
+            .await
+            .expect("Failed to write text test file");
+
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/file-content?path=notes.txt")
+            .body(Body::empty())
+            .expect("Failed to build file-content request for non-markdown");
+
+        let response = app
+            .oneshot(request)
+            .await
+            .expect("Failed to send file-content request for non-markdown");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_serve_image_sets_expected_content_type() {
+        let (app, temp_dir, _) = create_test_app().await;
+        let test_file = temp_dir.path().join("pixel.png");
+        fs::write(&test_file, vec![0x89, b'P', b'N', b'G'])
+            .await
+            .expect("Failed to write png test file");
+
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/image?path=pixel.png")
+            .body(Body::empty())
+            .expect("Failed to build image request");
+
+        let response = app
+            .oneshot(request)
+            .await
+            .expect("Failed to send image request");
+        assert_eq!(response.status(), StatusCode::OK);
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok());
+        assert_eq!(content_type, Some("image/png"));
+    }
+
+    #[tokio::test]
+    async fn test_serve_file_sets_security_headers_for_safe_file() {
+        let (app, temp_dir, _) = create_test_app().await;
+        let test_file = temp_dir.path().join("notes.txt");
+        fs::write(&test_file, "safe preview")
+            .await
+            .expect("Failed to write safe file");
+
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/file?path=notes.txt")
+            .body(Body::empty())
+            .expect("Failed to build safe file request");
+
+        let response = app
+            .oneshot(request)
+            .await
+            .expect("Failed to send safe file request");
+        assert_eq!(response.status(), StatusCode::OK);
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok());
+        assert_eq!(content_type, Some("text/plain; charset=utf-8"));
+        let nosniff = response
+            .headers()
+            .get("x-content-type-options")
+            .and_then(|value| value.to_str().ok());
+        assert_eq!(nosniff, Some("nosniff"));
+        let frame_options = response
+            .headers()
+            .get("x-frame-options")
+            .and_then(|value| value.to_str().ok());
+        assert_eq!(frame_options, Some("SAMEORIGIN"));
+    }
+
+    #[tokio::test]
+    async fn test_serve_file_forbids_unsafe_file_type() {
+        let (app, temp_dir, _) = create_test_app().await;
+        let test_file = temp_dir.path().join("script.sh");
+        fs::write(&test_file, "echo hi")
+            .await
+            .expect("Failed to write executable test file");
+
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/file?path=script.sh")
+            .body(Body::empty())
+            .expect("Failed to build executable file request");
+
+        let response = app
+            .oneshot(request)
+            .await
+            .expect("Failed to send executable file request");
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn test_file_preview_shows_iframe_for_safe_file_type() {
+        let (app, temp_dir, _) = create_test_app().await;
+        let test_file = temp_dir.path().join("notes.txt");
+        fs::write(&test_file, "hello")
+            .await
+            .expect("Failed to write safe preview file");
+
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/file-preview?path=notes.txt")
+            .body(Body::empty())
+            .expect("Failed to build file preview request");
+
+        let response = app
+            .oneshot(request)
+            .await
+            .expect("Failed to send file preview request");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("Failed to collect file preview response")
+            .to_bytes();
+        let html =
+            String::from_utf8(body.to_vec()).expect("Failed to parse file preview HTML as UTF-8");
+        assert!(html.contains("<iframe "));
+    }
+
+    #[tokio::test]
+    async fn test_file_preview_rejects_markdown_and_images() {
+        let (app, temp_dir, _) = create_test_app().await;
+        let markdown_file = temp_dir.path().join("post.md");
+        let image_file = temp_dir.path().join("photo.png");
+        fs::write(&markdown_file, "# Post")
+            .await
+            .expect("Failed to write markdown file");
+        fs::write(&image_file, "not really png")
+            .await
+            .expect("Failed to write image file");
+
+        let markdown_request = Request::builder()
+            .method(Method::GET)
+            .uri("/file-preview?path=post.md")
+            .body(Body::empty())
+            .expect("Failed to build markdown file-preview request");
+        let markdown_response = app
+            .clone()
+            .oneshot(markdown_request)
+            .await
+            .expect("Failed to send markdown file-preview request");
+        assert_eq!(markdown_response.status(), StatusCode::BAD_REQUEST);
+
+        let image_request = Request::builder()
+            .method(Method::GET)
+            .uri("/file-preview?path=photo.png")
+            .body(Body::empty())
+            .expect("Failed to build image file-preview request");
+        let image_response = app
+            .oneshot(image_request)
+            .await
+            .expect("Failed to send image file-preview request");
+        assert_eq!(image_response.status(), StatusCode::BAD_REQUEST);
+    }
+
     #[test]
     fn test_csrf_tokens_are_unique() {
         let secret = "test_secret";
@@ -2228,6 +2476,223 @@ draft: true
         assert!(validate_csrf_token(&token1, secret).is_ok());
         assert!(validate_csrf_token(&token2, secret).is_ok());
         assert!(validate_csrf_token(&token3, secret).is_ok());
+    }
+
+    #[test]
+    fn test_git_compatible_ascii_filename_stem_rules() {
+        assert!(is_git_compatible_ascii_filename_stem("post"));
+        assert!(is_git_compatible_ascii_filename_stem("post-1_2.test"));
+        assert!(!is_git_compatible_ascii_filename_stem(""));
+        assert!(!is_git_compatible_ascii_filename_stem(".post"));
+        assert!(!is_git_compatible_ascii_filename_stem("post."));
+        assert!(!is_git_compatible_ascii_filename_stem("post..v1"));
+        assert!(!is_git_compatible_ascii_filename_stem("bad/name"));
+        assert!(!is_git_compatible_ascii_filename_stem("two words"));
+        assert!(!is_git_compatible_ascii_filename_stem("ümlaut"));
+    }
+
+    #[test]
+    fn test_normalize_markdown_filename_handles_common_inputs() {
+        assert_eq!(
+            normalize_markdown_filename("post").ok(),
+            Some("post.md".to_string())
+        );
+        assert_eq!(
+            normalize_markdown_filename("post.md").ok(),
+            Some("post.md".to_string())
+        );
+        assert_eq!(
+            normalize_markdown_filename("post.markdown").ok(),
+            Some("post.md".to_string())
+        );
+        assert_eq!(
+            normalize_markdown_filename("  post-with-space-trim  ").ok(),
+            Some("post-with-space-trim.md".to_string())
+        );
+        assert!(normalize_markdown_filename("").is_err());
+        assert!(normalize_markdown_filename("bad/name").is_err());
+        assert!(normalize_markdown_filename(".hidden").is_err());
+        assert!(normalize_markdown_filename("bad..name").is_err());
+    }
+
+    #[test]
+    fn test_extract_frontmatter_detects_yaml_and_json_blocks() {
+        let yaml_content = "---\ndraft: true\n---\n# Post\n";
+        let json_content = "{\n  \"draft\": true\n}\n# Post\n";
+        let no_frontmatter = "# Post";
+
+        let yaml = extract_frontmatter(yaml_content).expect("yaml frontmatter should be found");
+        assert!(matches!(yaml.0, FrontmatterFormat::Yaml));
+        assert_eq!(yaml.1, "draft: true\n");
+
+        let json = extract_frontmatter(json_content).expect("json frontmatter should be found");
+        assert!(matches!(json.0, FrontmatterFormat::Json));
+        assert!(json.1.contains("\"draft\": true"));
+
+        assert!(extract_frontmatter(no_frontmatter).is_none());
+    }
+
+    #[test]
+    fn test_extract_json_frontmatter_requires_newline_or_eof_after_block() {
+        let valid_with_newline = "{\n  \"draft\": true\n}\n# post";
+        let valid_eof = "{\n  \"draft\": true\n}";
+        let invalid_trailing_text = "{\"draft\":true}#post";
+
+        assert!(extract_json_frontmatter(valid_with_newline).is_some());
+        assert!(extract_json_frontmatter(valid_eof).is_some());
+        assert!(extract_json_frontmatter(invalid_trailing_text).is_none());
+    }
+
+    #[test]
+    fn test_parse_bool_value_coercions() {
+        assert_eq!(parse_bool_value(&serde_json::json!(true)), Some(true));
+        assert_eq!(parse_bool_value(&serde_json::json!(false)), Some(false));
+        assert_eq!(parse_bool_value(&serde_json::json!("yes")), Some(true));
+        assert_eq!(parse_bool_value(&serde_json::json!("off")), Some(false));
+        assert_eq!(parse_bool_value(&serde_json::json!(1)), Some(true));
+        assert_eq!(parse_bool_value(&serde_json::json!(0)), Some(false));
+        assert_eq!(parse_bool_value(&serde_json::json!(2)), None);
+        assert_eq!(parse_bool_value(&serde_json::json!("maybe")), None);
+    }
+
+    #[test]
+    fn test_parse_string_value_coercions() {
+        assert_eq!(
+            parse_string_value(&serde_json::json!(" hello ")),
+            Some("hello".to_string())
+        );
+        assert_eq!(
+            parse_string_value(&serde_json::json!(42)),
+            Some("42".to_string())
+        );
+        assert_eq!(
+            parse_string_value(&serde_json::json!(true)),
+            Some("true".to_string())
+        );
+        assert_eq!(parse_string_value(&serde_json::json!("  ")), None);
+        assert_eq!(parse_string_value(&serde_json::json!({"k": "v"})), None);
+    }
+
+    #[test]
+    fn test_parse_string_list_value_coercions() {
+        assert_eq!(
+            parse_string_list_value(&serde_json::json!(["a", " b ", 3])),
+            vec!["a".to_string(), "b".to_string(), "3".to_string()]
+        );
+        assert_eq!(
+            parse_string_list_value(&serde_json::json!("rust, web,  docs ")),
+            vec!["rust".to_string(), "web".to_string(), "docs".to_string()]
+        );
+        assert_eq!(
+            parse_string_list_value(&serde_json::json!("single")),
+            vec!["single".to_string()]
+        );
+        assert_eq!(
+            parse_string_list_value(&serde_json::json!(9)),
+            vec!["9".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_format_file_size_units() {
+        assert_eq!(format_file_size(0), "0 B");
+        assert_eq!(format_file_size(1023), "1023 B");
+        assert_eq!(format_file_size(1024), "1.0 KB");
+        assert_eq!(format_file_size(1_048_576), "1.0 MB");
+    }
+
+    #[test]
+    fn test_get_parent_directory_path_formats_navigation_urls() {
+        assert_eq!(get_parent_directory_path("post.md"), "/");
+        assert_eq!(get_parent_directory_path("posts/post.md"), "/?path=posts");
+        assert_eq!(
+            get_parent_directory_path("posts/2026/post.md"),
+            "/?path=posts%2F2026"
+        );
+    }
+
+    #[test]
+    fn test_get_file_type_description_covers_known_and_unknown_types() {
+        assert_eq!(get_file_type_description("notes.txt"), "Text file");
+        assert_eq!(get_file_type_description("index.html"), "HTML document");
+        assert_eq!(get_file_type_description("data.json"), "JSON data");
+        assert_eq!(get_file_type_description("script.sh"), "Executable file");
+        assert_eq!(
+            get_file_type_description("archive.unknown"),
+            "Unknown file type"
+        );
+    }
+
+    #[test]
+    fn test_build_breadcrumbs_generates_expected_paths() {
+        let breadcrumbs = build_breadcrumbs("posts/2026");
+        assert_eq!(breadcrumbs.len(), 2);
+
+        let first = breadcrumbs
+            .first()
+            .expect("breadcrumbs should have a first element");
+        assert_eq!(first.name, "posts");
+        assert_eq!(first.url, "/?path=posts");
+
+        let second = breadcrumbs
+            .get(1)
+            .expect("breadcrumbs should have a second element");
+        assert_eq!(second.name, "2026");
+        assert_eq!(second.url, "/?path=posts%2F2026");
+    }
+
+    #[test]
+    fn test_build_directory_entry_views_maps_file_types_to_view_models() {
+        let entries = vec![
+            DirectoryEntry {
+                name: "posts".to_string(),
+                is_directory: true,
+                path: "posts".to_string(),
+            },
+            DirectoryEntry {
+                name: "note.md".to_string(),
+                is_directory: false,
+                path: "posts/note.md".to_string(),
+            },
+            DirectoryEntry {
+                name: "photo.png".to_string(),
+                is_directory: false,
+                path: "posts/photo.png".to_string(),
+            },
+            DirectoryEntry {
+                name: "run.sh".to_string(),
+                is_directory: false,
+                path: "posts/run.sh".to_string(),
+            },
+            DirectoryEntry {
+                name: "notes.txt".to_string(),
+                is_directory: false,
+                path: "posts/notes.txt".to_string(),
+            },
+        ];
+
+        let views = build_directory_entry_views(&entries);
+        assert_eq!(views.len(), 5);
+
+        let directory_view = views.first().expect("expected directory view");
+        assert_eq!(directory_view.icon, "📁");
+        assert!(directory_view.has_url);
+
+        let markdown_view = views.get(1).expect("expected markdown view");
+        assert!(markdown_view.url.starts_with("/edit?path="));
+        assert!(markdown_view.has_url);
+
+        let image_view = views.get(2).expect("expected image view");
+        assert!(image_view.url.starts_with("/preview?path="));
+        assert!(image_view.has_url);
+
+        let executable_view = views.get(3).expect("expected executable view");
+        assert!(!executable_view.has_url);
+        assert!(executable_view.executable);
+
+        let generic_file_view = views.get(4).expect("expected generic file view");
+        assert!(generic_file_view.url.starts_with("/file-preview?path="));
+        assert!(generic_file_view.has_url);
     }
 
     #[tokio::test]

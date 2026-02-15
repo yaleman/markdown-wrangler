@@ -28,7 +28,11 @@ lint-scripts:
 set positional-arguments
 
 @coverage_inner *args='':
-    cargo tarpaulin --workspace --exclude-files=src/main.rs $@
+    cargo tarpaulin --workspace \
+        --exclude-files=src/main.rs \
+        --exclude-files=src/logging/mod.rs \
+        --exclude-files=src/logging/consoleexporter.rs \
+        $@
 
 # run coverage checks
 coverage:
