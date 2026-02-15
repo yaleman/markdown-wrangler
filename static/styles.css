@@ -18,6 +18,10 @@ a:hover {
 }
 
 /* Directory Browser Styles */
+.directory-page {
+    margin: 40px;
+}
+
 .breadcrumb {
     margin-bottom: 20px;
     color: #666;
