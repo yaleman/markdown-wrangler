@@ -201,6 +201,8 @@ The application supports OpenTelemetry tracing. Configure with standard OpenTele
 The application includes several security features:
 
 - **CSRF Protection**: All state-changing endpoints require valid CSRF tokens
+- **CSRF Signing**: Tokens use `timestamp:nonce:signature`, where `signature`
+  is HMAC-SHA256 over `timestamp:nonce`
 - **Token Expiration**: CSRF tokens expire after 1 hour
 - **Secure Headers**: Proper HTTP security headers
 - **Input Validation**: Sanitized file path handling

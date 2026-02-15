@@ -4,8 +4,6 @@
 
 - [ ] Add end-to-end delete test that starts from preview context and succeeds with a valid token.
   - Presence of `name="csrf_token"` in preview pages is already covered; remaining gap is full preview-to-delete flow.
-- [ ] Decide CSRF signing approach and align implementation/docs.
-  - Implementation currently uses keyed SHA-256 over `"{timestamp}:{nonce}" + secret`; docs are inconsistent (e.g. `README.md` still says HMAC-SHA256).
 
 ## P1 - Documentation and architecture accuracy
 

@@ -15,10 +15,11 @@ use axum::{
     routing::{get, post},
 };
 use constants::*;
+use hmac::{Hmac, Mac};
 
 use rand::RngExt;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -30,6 +31,8 @@ use tower_http::services::ServeDir;
 use tracing::{debug, info, warn};
 
 use crate::web::error::WebError;
+
+type HmacSha256 = Hmac<Sha256>;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -152,10 +155,19 @@ pub(crate) fn generate_csrf_token(secret: &str) -> String {
     let nonce: u64 = rand::rng().random();
 
     let payload = format!("{timestamp}:{nonce}");
-    let mut hasher = Sha256::new();
-    hasher.update(payload.as_bytes());
-    hasher.update(secret.as_bytes());
-    let signature = hex::encode(hasher.finalize());
+    let signature = match HmacSha256::new_from_slice(secret.as_bytes()) {
+        Ok(mut mac) => {
+            mac.update(payload.as_bytes());
+            hex::encode(mac.finalize().into_bytes())
+        }
+        Err(err) => {
+            warn!(
+                "Failed to initialize HMAC for CSRF token generation: {}",
+                err
+            );
+            String::new()
+        }
+    };
 
     format!("{payload}:{signature}")
 }
@@ -188,13 +200,24 @@ pub(crate) fn validate_csrf_token(token: &str, secret: &str) -> Result<(), WebEr
         return Err(WebError::Forbidden("Invalid CSRF Token".to_string()));
     }
 
-    let payload = format!("{timestamp_str}:{nonce}");
-    let mut hasher = Sha256::new();
-    hasher.update(payload.as_bytes());
-    hasher.update(secret.as_bytes());
-    let expected_signature = hex::encode(hasher.finalize());
+    let Ok(signature_bytes) = hex::decode(provided_signature) else {
+        return Err(WebError::Forbidden("Invalid CSRF Token".to_string()));
+    };
 
-    if expected_signature == *provided_signature {
+    let payload = format!("{timestamp_str}:{nonce}");
+    let mut mac = match HmacSha256::new_from_slice(secret.as_bytes()) {
+        Ok(mac) => mac,
+        Err(err) => {
+            warn!(
+                "Failed to initialize HMAC for CSRF token validation: {}",
+                err
+            );
+            return Err(WebError::Forbidden("Invalid CSRF Token".to_string()));
+        }
+    };
+    mac.update(payload.as_bytes());
+
+    if mac.verify_slice(&signature_bytes).is_ok() {
         Ok(())
     } else {
         Err(WebError::Forbidden("Invalid CSRF Token".to_string()))
@@ -837,6 +860,7 @@ mod tests {
         http::{Method, Request, StatusCode},
     };
     use http_body_util::BodyExt;
+    use sha2::Digest;
     use tempfile::TempDir;
     use tower::ServiceExt;
 
@@ -858,6 +882,19 @@ mod tests {
             .as_secs()
             - 7200; // 2 hours ago
         let payload = format!("{expired_timestamp}:12345");
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
+            .expect("failed to initialize HMAC for expired CSRF token");
+        mac.update(payload.as_bytes());
+        let signature = hex::encode(mac.finalize().into_bytes());
+        format!("{payload}:{signature}")
+    }
+
+    fn create_legacy_keyed_csrf_token(secret: &str) -> String {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after UNIX_EPOCH")
+            .as_secs();
+        let payload = format!("{timestamp}:12345");
         let mut hasher = Sha256::new();
         hasher.update(payload.as_bytes());
         hasher.update(secret.as_bytes());
@@ -909,28 +946,24 @@ mod tests {
         assert!(validate_csrf_token("only:two", secret).is_err());
         assert!(validate_csrf_token("too:many:parts:here", secret).is_err());
         assert!(validate_csrf_token(":::", secret).is_err());
+        assert!(validate_csrf_token("1:2:not_hex_signature_@", secret).is_err());
     }
 
     #[test]
     fn test_csrf_token_validation_expired() {
         let secret = "test_secret";
 
-        // Create an expired token (timestamp from 2 hours ago)
-        let expired_timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock should be after UNIX_EPOCH")
-            .as_secs()
-            - 7200; // 2 hours ago
-
-        let payload = format!("{expired_timestamp}:12345");
-        let mut hasher = Sha256::new();
-        hasher.update(payload.as_bytes());
-        hasher.update(secret.as_bytes());
-        let signature = hex::encode(hasher.finalize());
-        let expired_token = format!("{payload}:{signature}");
+        let expired_token = create_expired_csrf_token(secret);
 
         // Expired token should fail validation
         assert!(validate_csrf_token(&expired_token, secret).is_err());
+    }
+
+    #[test]
+    fn test_csrf_token_validation_rejects_legacy_keyed_hash_token() {
+        let secret = "test_secret";
+        let legacy_token = create_legacy_keyed_csrf_token(secret);
+        assert!(validate_csrf_token(&legacy_token, secret).is_err());
     }
 
     #[test]

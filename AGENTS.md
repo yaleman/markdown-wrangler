@@ -75,8 +75,8 @@ just docker_build          # Build container image
 - Token format: `{timestamp}:{nonce}:{signature}`
 - Tokens expire after 1 hour (3600 seconds).
 - Secret is generated at startup from random bytes.
-- Current signature algorithm is SHA-256 over `"{timestamp}:{nonce}" + secret`
-  (keyed hash), implemented in `generate_csrf_token()` /
+- Current signature algorithm is HMAC-SHA256 over `"{timestamp}:{nonce}"`,
+  implemented in `generate_csrf_token()` /
   `validate_csrf_token()` in `src/web.rs`.
 
 **File Safety:**
@@ -143,12 +143,10 @@ just docker_build          # Build container image
 
 ## Known Gaps (as of current implementation)
 
-- Delete forms rendered by image/file preview pages currently omit `csrf_token`,
-  so delete actions from those pages fail against `POST /delete`.
-- `generate_image_preview_html()` currently contains inline JavaScript for image
-  dimensions, which conflicts with the no-inline policy.
-- `askama` and `askama_web` are present in dependencies but not used by current
-  source.
+- End-to-end test coverage for deleting a file from preview-page context is
+  still missing.
+- Add/adjust frontend tests or lint rules to prevent reintroducing inline
+  JS/CSS policy violations.
 
 ## File Type Handling
 
