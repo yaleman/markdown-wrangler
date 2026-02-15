@@ -10,23 +10,23 @@ use askama_web::WebTemplate;
 use axum::{
     Router,
     extract::{Form, Query, State},
-    http::StatusCode,
-    response::{Html, Json},
+    response::{Json, Response},
     routing::{get, post},
 };
 use constants::*;
+
 use rand::RngExt;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
-    fs,
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
+use tokio::fs;
 use tokio::net::TcpListener;
 use tower_http::services::ServeDir;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::web::error::WebError;
 
@@ -153,10 +153,10 @@ pub(crate) fn generate_csrf_token(secret: &str) -> String {
     format!("{payload}:{signature}")
 }
 
-pub(crate) fn validate_csrf_token(token: &str, secret: &str) -> bool {
+pub(crate) fn validate_csrf_token(token: &str, secret: &str) -> Result<(), WebError> {
     let parts: Vec<&str> = token.split(':').collect();
     if parts.len() != 3 {
-        return false;
+        return Err(WebError::Forbidden("Invalid CSRF Token".to_string()));
     }
 
     let timestamp_str = parts[0];
@@ -170,10 +170,11 @@ pub(crate) fn validate_csrf_token(token: &str, secret: &str) -> bool {
             .unwrap()
             .as_secs();
         if current_time - timestamp > 3600 {
-            return false;
+            debug!(?timestamp, ?current_time, "CSRF token expired");
+            return Err(WebError::Forbidden("Invalid CSRF Token".to_string()));
         }
     } else {
-        return false;
+        return Err(WebError::Forbidden("Invalid CSRF Token".to_string()));
     }
 
     let payload = format!("{timestamp_str}:{nonce}");
@@ -182,10 +183,17 @@ pub(crate) fn validate_csrf_token(token: &str, secret: &str) -> bool {
     hasher.update(secret.as_bytes());
     let expected_signature = hex::encode(hasher.finalize());
 
-    expected_signature == provided_signature
+    if expected_signature == provided_signature {
+        Ok(())
+    } else {
+        Err(WebError::Forbidden("Invalid CSRF Token".to_string()))
+    }
 }
 
-fn list_directory(base_dir: &Path, relative_path: &str) -> Result<Vec<DirectoryEntry>, WebError> {
+async fn list_directory(
+    base_dir: &Path,
+    relative_path: &str,
+) -> Result<Vec<DirectoryEntry>, WebError> {
     let full_path = if relative_path.is_empty() {
         base_dir.to_path_buf()
     } else {
@@ -208,12 +216,11 @@ fn list_directory(base_dir: &Path, relative_path: &str) -> Result<Vec<DirectoryE
         return Err(WebError::Unauthorized);
     }
 
-    let entries = fs::read_dir(&full_path)?;
+    let mut entries = fs::read_dir(&full_path).await?;
 
     let mut directory_entries = Vec::new();
 
-    for entry in entries {
-        let entry = entry?;
+    while let Some(entry) = entries.next_entry().await? {
         let file_name = entry.file_name().to_string_lossy().to_string();
 
         // Skip hidden files
@@ -221,7 +228,7 @@ fn list_directory(base_dir: &Path, relative_path: &str) -> Result<Vec<DirectoryE
             continue;
         }
 
-        let is_directory = entry.file_type()?.is_dir();
+        let is_directory = entry.file_type().await?.is_dir();
 
         let entry_path = if relative_path.is_empty() {
             file_name.clone()
@@ -246,23 +253,25 @@ fn list_directory(base_dir: &Path, relative_path: &str) -> Result<Vec<DirectoryE
     Ok(directory_entries)
 }
 
-fn validate_file_path(base_dir: &Path, relative_path: &str) -> Result<PathBuf, String> {
+fn validate_file_path(base_dir: &Path, relative_path: &str) -> Result<PathBuf, WebError> {
     let full_path = base_dir.join(relative_path);
 
     // Security check: ensure the path is within the base directory
     let canonical_base = base_dir
         .canonicalize()
-        .map_err(|e| format!("Base directory error: {e}"))?;
+        .map_err(|e| WebError::BadRequest(format!("Base directory error: {e}")))?;
     let canonical_full = full_path
         .canonicalize()
-        .map_err(|_| "Path does not exist".to_string())?;
+        .map_err(|_| WebError::BadRequest("Path does not exist".to_string()))?;
 
     if !canonical_full.starts_with(&canonical_base) {
-        return Err("Path outside base directory".to_string());
+        return Err(WebError::BadRequest(
+            "Path outside base directory".to_string(),
+        ));
     }
 
     if !canonical_full.is_file() {
-        return Err("Path is not a file".to_string());
+        return Err(WebError::BadRequest("Path is not a file".to_string()));
     }
 
     Ok(canonical_full)
@@ -272,18 +281,8 @@ fn is_markdown_file(path: &str) -> bool {
     path.to_lowercase().ends_with(".md") || path.to_lowercase().ends_with(".markdown")
 }
 
-fn read_file_content(file_path: &Path) -> Result<String, String> {
-    fs::read_to_string(file_path).map_err(|e| format!("Failed to read file: {e}"))
-}
-
-fn write_file_content(file_path: &Path, content: &str) -> Result<(), String> {
-    fs::write(file_path, content).map_err(|e| format!("Failed to write file: {e}"))
-}
-
-fn get_file_size(file_path: &Path) -> Result<u64, String> {
-    fs::metadata(file_path)
-        .map(|metadata| metadata.len())
-        .map_err(|e| format!("Failed to get file metadata: {e}"))
+async fn get_file_size(file_path: &Path) -> Result<u64, std::io::Error> {
+    fs::metadata(file_path).await.map(|metadata| metadata.len())
 }
 
 fn format_file_size(size_bytes: u64) -> String {
@@ -316,36 +315,16 @@ fn get_parent_directory_path(file_path: &str) -> String {
     }
 }
 
-fn get_file_modification_time(file_path: &Path) -> Result<String, String> {
+async fn get_file_modification_time(file_path: &Path) -> Result<String, WebError> {
     fs::metadata(file_path)
+        .await
         .and_then(|metadata| metadata.modified())
         .map(|time| {
             time.duration_since(SystemTime::UNIX_EPOCH)
                 .map(|duration| duration.as_secs().to_string())
                 .unwrap_or_else(|_| "0".to_string())
         })
-        .map_err(|e| format!("Failed to get file modification time: {e}"))
-}
-
-fn render_template<T: Template>(template: &T) -> Result<String, String> {
-    template
-        .render()
-        .map_err(|e| format!("Failed to render template: {e}"))
-}
-
-fn generate_image_preview_html(
-    file_path: &str,
-    file_size: &str,
-    csrf_token: &str,
-) -> Result<String, String> {
-    let template = ImagePreviewTemplate {
-        file_path: file_path.to_string(),
-        encoded_path: urlencoding::encode(file_path).into_owned(),
-        file_size: file_size.to_string(),
-        parent_path: get_parent_directory_path(file_path),
-        csrf_token: csrf_token.to_string(),
-    };
-    render_template(&template)
+        .map_err(|e| WebError::Internal(format!("Failed to get file modification time: {e}")))
 }
 
 fn get_file_type_description(file_path: &str) -> &'static str {
@@ -457,12 +436,15 @@ fn build_directory_entry_views(entries: &[DirectoryEntry]) -> Vec<DirectoryEntry
         .collect()
 }
 
-fn generate_directory_template(
-    entries: &[DirectoryEntry],
-    current_path: &str,
-) -> DirectoryTemplate {
-    let parent_url = if let Some(pos) = current_path.rfind('/') {
-        let parent_path = &current_path[..pos];
+async fn index(
+    Query(params): Query<HashMap<String, String>>,
+    State(state): State<AppState>,
+) -> Result<DirectoryTemplate, WebError> {
+    let path = params.get("path").map(|s| s.as_str()).unwrap_or("");
+
+    let entries = list_directory(&state.target_dir, path).await?;
+    let parent_url = if let Some(pos) = path.rfind('/') {
+        let parent_path = &path[..pos];
         if parent_path.is_empty() {
             "/".to_string()
         } else {
@@ -472,338 +454,204 @@ fn generate_directory_template(
         "/".to_string()
     };
 
-    DirectoryTemplate {
-        at_root: current_path.is_empty(),
-        breadcrumbs: build_breadcrumbs(current_path),
-        has_parent: !current_path.is_empty(),
+    Ok(DirectoryTemplate {
+        at_root: path.is_empty(),
+        breadcrumbs: build_breadcrumbs(path),
+        has_parent: !path.is_empty(),
         parent_url,
-        entries: build_directory_entry_views(entries),
-    }
-}
-
-struct StatusPageContext<'a> {
-    title: &'a str,
-    heading: &'a str,
-    heading_class: &'a str,
-    file_path: &'a str,
-    detail_text: &'a str,
-    show_edit_button: bool,
-    edit_url: &'a str,
-    back_url: &'a str,
-}
-
-fn generate_status_html(context: StatusPageContext<'_>) -> Result<String, String> {
-    let template = StatusPageTemplate {
-        title: context.title.to_string(),
-        heading: context.heading.to_string(),
-        heading_class: context.heading_class.to_string(),
-        file_path: context.file_path.to_string(),
-        detail_text: context.detail_text.to_string(),
-        show_edit_button: context.show_edit_button,
-        edit_url: context.edit_url.to_string(),
-        back_url: context.back_url.to_string(),
-    };
-    render_template(&template)
-}
-
-async fn index(
-    Query(params): Query<HashMap<String, String>>,
-    State(state): State<AppState>,
-) -> Result<DirectoryTemplate, WebError> {
-    let path = params.get("path").map(|s| s.as_str()).unwrap_or("");
-
-    list_directory(&state.target_dir, path)
-        .map(|entries| generate_directory_template(&entries, path))
+        entries: build_directory_entry_views(&entries),
+    })
 }
 
 async fn edit_file(
     Query(params): Query<HashMap<String, String>>,
     State(state): State<AppState>,
-) -> Result<EditorTemplate, (StatusCode, String)> {
-    let file_path = params.get("path").ok_or((
-        StatusCode::BAD_REQUEST,
-        "Missing path parameter".to_string(),
-    ))?;
+) -> Result<EditorTemplate, WebError> {
+    let file_path = params
+        .get("path")
+        .ok_or(WebError::BadRequest("Missing path parameter".to_string()))?;
 
     if !is_markdown_file(file_path) {
-        return Err((
-            StatusCode::BAD_REQUEST,
+        return Err(WebError::BadRequest(
             "File is not a markdown file".to_string(),
         ));
     }
 
-    match validate_file_path(&state.target_dir, file_path) {
-        Ok(full_path) => match read_file_content(&full_path) {
-            Ok(content) => {
-                let csrf_token = generate_csrf_token(&state.csrf_secret);
-                Ok(EditorTemplate {
-                    file_path: file_path.to_string(),
-                    content,
-                    csrf_token,
-                })
-            }
-            Err(err) => {
-                warn!("File read error: {}", err);
-                Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Error reading file: {err}"),
-                ))
-            }
-        },
-        Err(err) => {
-            warn!("File validation error: {}", err);
-            Err((StatusCode::BAD_REQUEST, format!("Error: {err}")))
-        }
-    }
+    let full_path = validate_file_path(&state.target_dir, file_path)?;
+
+    let content = tokio::fs::read_to_string(&full_path).await?;
+    let csrf_token = generate_csrf_token(&state.csrf_secret);
+    Ok(EditorTemplate {
+        file_path: file_path.to_string(),
+        content,
+        csrf_token,
+    })
 }
 
 async fn save_file(
     State(state): State<AppState>,
     Form(form): Form<EditForm>,
-) -> Result<Html<String>, (StatusCode, String)> {
+) -> Result<StatusPageTemplate, WebError> {
     // Validate CSRF token
-    if !validate_csrf_token(&form.csrf_token, &state.csrf_secret) {
-        return Err((StatusCode::FORBIDDEN, "Invalid CSRF token".to_string()));
-    }
+    validate_csrf_token(&form.csrf_token, &state.csrf_secret)?;
 
     if !is_markdown_file(&form.path) {
-        return Err((
-            StatusCode::BAD_REQUEST,
+        return Err(WebError::BadRequest(
             "File is not a markdown file".to_string(),
         ));
     }
 
-    match validate_file_path(&state.target_dir, &form.path) {
-        Ok(full_path) => {
-            // Read existing content to check if it has changed
-            match read_file_content(&full_path) {
-                Ok(existing_content) => {
-                    if existing_content == form.content {
-                        // Content hasn't changed, don't write to disk
-                        info!("File content unchanged, skipping write: {}", form.path);
-                        let parent_path = get_parent_directory_path(&form.path);
-                        let edit_url = format!("/edit?path={}", urlencoding::encode(&form.path));
-                        match generate_status_html(StatusPageContext {
-                            title: "File Unchanged - Markdown Wrangler",
-                            heading: "ℹ️ No Changes to Save",
-                            heading_class: "success",
-                            file_path: &form.path,
-                            detail_text: "content is unchanged.",
-                            show_edit_button: true,
-                            edit_url: &edit_url,
-                            back_url: &parent_path,
-                        }) {
-                            Ok(html) => Ok(Html(html)),
-                            Err(err) => {
-                                warn!("Template render error: {}", err);
-                                Err((StatusCode::INTERNAL_SERVER_ERROR, err))
-                            }
-                        }
-                    } else {
-                        // Content has changed, write to disk
-                        match write_file_content(&full_path, &form.content) {
-                            Ok(()) => {
-                                info!("File saved successfully: {}", form.path);
-                                let parent_path = get_parent_directory_path(&form.path);
-                                let edit_url =
-                                    format!("/edit?path={}", urlencoding::encode(&form.path));
-                                match generate_status_html(StatusPageContext {
-                                    title: "File Saved - Markdown Wrangler",
-                                    heading: "✅ File Saved Successfully!",
-                                    heading_class: "success",
-                                    file_path: &form.path,
-                                    detail_text: "has been saved.",
-                                    show_edit_button: true,
-                                    edit_url: &edit_url,
-                                    back_url: &parent_path,
-                                }) {
-                                    Ok(html) => Ok(Html(html)),
-                                    Err(err) => {
-                                        warn!("Template render error: {}", err);
-                                        Err((StatusCode::INTERNAL_SERVER_ERROR, err))
-                                    }
-                                }
-                            }
-                            Err(err) => {
-                                warn!("File save error: {}", err);
-                                Err((
-                                    StatusCode::INTERNAL_SERVER_ERROR,
-                                    format!("Error saving file: {err}"),
-                                ))
-                            }
-                        }
-                    }
-                }
-                Err(err) => {
-                    warn!("File read error during save comparison: {}", err);
-                    Err((
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Error reading file for comparison: {err}"),
-                    ))
-                }
-            }
-        }
-        Err(err) => {
-            warn!("File validation error during save: {}", err);
-            Err((StatusCode::BAD_REQUEST, format!("Error: {err}")))
-        }
+    let full_path = validate_file_path(&state.target_dir, &form.path)?;
+    // Read existing content to check if it has changed
+    let existing_content = tokio::fs::read_to_string(&full_path).await?;
+    if existing_content == form.content {
+        // Content hasn't changed, don't write to disk
+        info!("File content unchanged, skipping write: {}", form.path);
+        let back_url = get_parent_directory_path(&form.path);
+        let edit_url = format!("/edit?path={}", urlencoding::encode(&form.path));
+        Ok(StatusPageTemplate {
+            title: "File Unchanged - Markdown Wrangler".to_string(),
+            heading: "ℹ️ No Changes to Save".to_string(),
+            heading_class: "success".to_string(),
+            file_path: form.path,
+            detail_text: "content is unchanged.".to_string(),
+            show_edit_button: true,
+            edit_url,
+            back_url,
+        })
+    } else {
+        // Content has changed, write to disk
+        fs::write(&full_path, &form.content).await?;
+
+        info!("File saved successfully: {}", form.path);
+        let back_url = get_parent_directory_path(&form.path);
+        let edit_url = format!("/edit?path={}", urlencoding::encode(&form.path));
+
+        Ok(StatusPageTemplate {
+            title: "File Saved - Markdown Wrangler".to_string(),
+            heading: "✅ File Saved Successfully!".to_string(),
+            heading_class: "success".to_string(),
+            file_path: form.path.to_string(),
+            detail_text: "has been saved.".to_string(),
+            show_edit_button: true,
+            edit_url,
+            back_url,
+        })
     }
 }
 
 async fn preview_image(
     Query(params): Query<HashMap<String, String>>,
     State(state): State<AppState>,
-) -> Result<Html<String>, (StatusCode, String)> {
-    let file_path = params.get("path").ok_or((
-        StatusCode::BAD_REQUEST,
-        "Missing path parameter".to_string(),
-    ))?;
+) -> Result<ImagePreviewTemplate, WebError> {
+    let file_path = params
+        .get("path")
+        .ok_or(WebError::BadRequest("Missing path parameter".to_string()))?
+        .to_owned();
 
-    if !is_image_file(file_path) {
-        return Err((
-            StatusCode::BAD_REQUEST,
+    if !is_image_file(&file_path) {
+        return Err(WebError::BadRequest(
             "File is not an image file".to_string(),
         ));
     }
 
-    match validate_file_path(&state.target_dir, file_path) {
-        Ok(full_path) => {
-            let csrf_token = generate_csrf_token(&state.csrf_secret);
-            match get_file_size(&full_path) {
-                Ok(size_bytes) => {
-                    let file_size = format_file_size(size_bytes);
-                    match generate_image_preview_html(file_path, &file_size, &csrf_token) {
-                        Ok(html) => Ok(Html(html)),
-                        Err(err) => {
-                            warn!("Template render error: {}", err);
-                            Err((StatusCode::INTERNAL_SERVER_ERROR, err))
-                        }
-                    }
-                }
-                Err(err) => {
-                    warn!("Failed to get file size: {}", err);
-                    // Fall back to generating without size info
-                    match generate_image_preview_html(file_path, "Unknown", &csrf_token) {
-                        Ok(html) => Ok(Html(html)),
-                        Err(render_err) => {
-                            warn!("Template render error: {}", render_err);
-                            Err((StatusCode::INTERNAL_SERVER_ERROR, render_err))
-                        }
-                    }
-                }
-            }
-        }
-        Err(err) => {
-            warn!("File validation error: {}", err);
-            Err((StatusCode::BAD_REQUEST, format!("Error: {err}")))
-        }
-    }
+    let full_path = validate_file_path(&state.target_dir, &file_path)?;
+
+    let csrf_token = generate_csrf_token(&state.csrf_secret);
+    let parent_path = get_parent_directory_path(&file_path);
+    let encoded_path = urlencoding::encode(&file_path).into_owned();
+    let file_size = get_file_size(&full_path).await.map(format_file_size)?;
+    Ok(ImagePreviewTemplate {
+        encoded_path,
+        parent_path,
+        file_path,
+        file_size,
+        csrf_token,
+    })
 }
 
 async fn serve_image(
     Query(params): Query<HashMap<String, String>>,
     State(state): State<AppState>,
-) -> Result<axum::response::Response, (StatusCode, String)> {
-    let file_path = params.get("path").ok_or((
-        StatusCode::BAD_REQUEST,
-        "Missing path parameter".to_string(),
-    ))?;
+) -> Result<axum::response::Response, WebError> {
+    let file_path = params
+        .get("path")
+        .ok_or(WebError::BadRequest("Missing path parameter".to_string()))?;
 
     if !is_image_file(file_path) {
-        return Err((
-            StatusCode::BAD_REQUEST,
+        return Err(WebError::BadRequest(
             "File is not an image file".to_string(),
         ));
     }
 
-    match validate_file_path(&state.target_dir, file_path) {
-        Ok(full_path) => {
-            match fs::read(&full_path) {
-                Ok(file_contents) => {
-                    // Determine content type based on file extension
-                    let content_type = match full_path.extension().and_then(|s| s.to_str()) {
-                        Some("jpg") | Some("jpeg") => "image/jpeg",
-                        Some("png") => "image/png",
-                        Some("gif") => "image/gif",
-                        Some("webp") => "image/webp",
-                        Some("svg") => "image/svg+xml",
-                        Some("bmp") => "image/bmp",
-                        Some("tiff") | Some("tif") => "image/tiff",
-                        _ => "application/octet-stream",
-                    };
+    let full_path = validate_file_path(&state.target_dir, file_path)?;
+    let file_contents = fs::read(&full_path).await?;
+    // Determine content type based on file extension
+    let content_type = match full_path.extension().and_then(|s| s.to_str()) {
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("png") => "image/png",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("svg") => "image/svg+xml",
+        Some("bmp") => "image/bmp",
+        Some("tiff") | Some("tif") => "image/tiff",
+        _ => "application/octet-stream",
+    };
 
-                    Ok(axum::response::Response::builder()
-                        .header("Content-Type", content_type)
-                        .body(axum::body::Body::from(file_contents))
-                        .unwrap())
-                }
-                Err(err) => {
-                    warn!("Image read error: {}", err);
-                    Err((
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Error reading image: {err}"),
-                    ))
-                }
-            }
-        }
-        Err(err) => {
-            warn!("Image validation error: {}", err);
-            Err((StatusCode::BAD_REQUEST, format!("Error: {err}")))
-        }
-    }
+    let mut response = Response::new(axum::body::Body::from(file_contents));
+
+    response.headers_mut().insert(
+        "Content-Type",
+        content_type
+            .parse()
+            .unwrap_or_else(|_| "application/octet-stream".parse().unwrap()),
+    );
+
+    Ok(response)
 }
 
 async fn preview_file(
     Query(params): Query<HashMap<String, String>>,
     State(state): State<AppState>,
-) -> Result<FilePreviewTemplate, (StatusCode, String)> {
-    let file_path = params.get("path").ok_or((
-        StatusCode::BAD_REQUEST,
-        "Missing path parameter".to_string(),
-    ))?;
+) -> Result<FilePreviewTemplate, WebError> {
+    let file_path = params
+        .get("path")
+        .ok_or(WebError::BadRequest("Missing path parameter".to_string()))?;
 
     // Don't preview markdown or image files with this handler
     if is_markdown_file(file_path) || is_image_file(file_path) {
-        return Err((
-            StatusCode::BAD_REQUEST,
+        return Err(WebError::BadRequest(
             "Use specific handlers for markdown and image files".to_string(),
         ));
     }
 
-    match validate_file_path(&state.target_dir, file_path) {
-        Ok(full_path) => {
-            let csrf_token = generate_csrf_token(&state.csrf_secret);
-            match get_file_size(&full_path) {
-                Ok(size_bytes) => {
-                    let file_size = format_file_size(size_bytes);
-                    Ok(FilePreviewTemplate {
-                        file_path: file_path.to_string(),
-                        encoded_path: urlencoding::encode(file_path).into_owned(),
-                        file_size: file_size.to_string(),
-                        file_type: get_file_type_description(file_path).to_string(),
-                        parent_path: get_parent_directory_path(file_path),
-                        csrf_token: csrf_token.to_string(),
-                        can_iframe: is_safe_for_iframe(file_path),
-                    })
-                }
-                Err(err) => {
-                    warn!("Failed to get file size: {}", err);
-                    // Fall back to generating without size info
-                    Ok(FilePreviewTemplate {
-                        file_path: file_path.to_string(),
-                        encoded_path: urlencoding::encode(file_path).into_owned(),
-                        file_size: "Unknown".to_string(),
-                        file_type: get_file_type_description(file_path).to_string(),
-                        parent_path: get_parent_directory_path(file_path),
-                        csrf_token: csrf_token.to_string(),
-                        can_iframe: is_safe_for_iframe(file_path),
-                    })
-                }
-            }
+    let full_path = validate_file_path(&state.target_dir, file_path)?;
+    let csrf_token = generate_csrf_token(&state.csrf_secret);
+    match get_file_size(&full_path).await {
+        Ok(size_bytes) => {
+            let file_size = format_file_size(size_bytes);
+            Ok(FilePreviewTemplate {
+                file_path: file_path.to_string(),
+                encoded_path: urlencoding::encode(file_path).into_owned(),
+                file_size: file_size.to_string(),
+                file_type: get_file_type_description(file_path).to_string(),
+                parent_path: get_parent_directory_path(file_path),
+                csrf_token: csrf_token.to_string(),
+                can_iframe: is_safe_for_iframe(file_path),
+            })
         }
         Err(err) => {
-            warn!("File validation error: {}", err);
-            Err((StatusCode::BAD_REQUEST, format!("Error: {err}")))
+            warn!("Failed to get file size: {}", err);
+            // Fall back to generating without size info
+            Ok(FilePreviewTemplate {
+                file_path: file_path.to_string(),
+                encoded_path: urlencoding::encode(file_path).into_owned(),
+                file_size: "Unknown".to_string(),
+                file_type: get_file_type_description(file_path).to_string(),
+                parent_path: get_parent_directory_path(file_path),
+                csrf_token: csrf_token.to_string(),
+                can_iframe: is_safe_for_iframe(file_path),
+            })
         }
     }
 }
@@ -811,192 +659,108 @@ async fn preview_file(
 async fn serve_file(
     Query(params): Query<HashMap<String, String>>,
     State(state): State<AppState>,
-) -> Result<axum::response::Response, (StatusCode, String)> {
-    let file_path = params.get("path").ok_or((
-        StatusCode::BAD_REQUEST,
-        "Missing path parameter".to_string(),
-    ))?;
+) -> Result<axum::response::Response, WebError> {
+    let file_path = params
+        .get("path")
+        .ok_or(WebError::BadRequest("Missing path parameter".to_string()))?;
 
     // Only serve safe files
     if !is_safe_for_iframe(file_path) || is_executable_file(file_path) {
-        return Err((
-            StatusCode::FORBIDDEN,
+        return Err(WebError::Forbidden(
             "File type not allowed for security reasons".to_string(),
         ));
     }
 
-    match validate_file_path(&state.target_dir, file_path) {
-        Ok(full_path) => {
-            match fs::read(&full_path) {
-                Ok(file_contents) => {
-                    // Determine content type based on file extension
-                    let content_type = match full_path.extension().and_then(|s| s.to_str()) {
-                        Some("txt") | Some("log") => "text/plain; charset=utf-8",
-                        Some("html") | Some("htm") => "text/html; charset=utf-8",
-                        Some("css") => "text/css; charset=utf-8",
-                        Some("js") => "application/javascript; charset=utf-8",
-                        Some("json") => "application/json; charset=utf-8",
-                        Some("xml") => "application/xml; charset=utf-8",
-                        Some("pdf") => "application/pdf",
-                        Some("csv") => "text/csv; charset=utf-8",
-                        Some("yml") | Some("yaml") => "text/yaml; charset=utf-8",
-                        Some("toml") => "text/plain; charset=utf-8",
-                        Some("ini") | Some("conf") | Some("cfg") => "text/plain; charset=utf-8",
-                        _ => "text/plain; charset=utf-8",
-                    };
+    let full_path = validate_file_path(&state.target_dir, file_path)?;
 
-                    Ok(axum::response::Response::builder()
-                        .header("Content-Type", content_type)
-                        .header("X-Content-Type-Options", "nosniff")
-                        .header("X-Frame-Options", "SAMEORIGIN")
-                        .body(axum::body::Body::from(file_contents))
-                        .unwrap())
-                }
-                Err(err) => {
-                    warn!("File read error: {}", err);
-                    Err((
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Error reading file: {err}"),
-                    ))
-                }
-            }
-        }
-        Err(err) => {
-            warn!("File validation error: {}", err);
-            Err((StatusCode::BAD_REQUEST, format!("Error: {err}")))
-        }
-    }
+    let file_contents = fs::read(&full_path).await?;
+    // Determine content type based on file extension
+    let content_type = match full_path.extension().and_then(|s| s.to_str()) {
+        Some("txt") | Some("log") => "text/plain; charset=utf-8",
+        Some("html") | Some("htm") => "text/html; charset=utf-8",
+        Some("css") => "text/css; charset=utf-8",
+        Some("js") => "application/javascript; charset=utf-8",
+        Some("json") => "application/json; charset=utf-8",
+        Some("xml") => "application/xml; charset=utf-8",
+        Some("pdf") => "application/pdf",
+        Some("csv") => "text/csv; charset=utf-8",
+        Some("yml") | Some("yaml") => "text/yaml; charset=utf-8",
+        Some("toml") => "text/plain; charset=utf-8",
+        Some("ini") | Some("conf") | Some("cfg") => "text/plain; charset=utf-8",
+        _ => "text/plain; charset=utf-8",
+    };
+
+    Ok(axum::response::Response::builder()
+        .header("Content-Type", content_type)
+        .header("X-Content-Type-Options", "nosniff")
+        .header("X-Frame-Options", "SAMEORIGIN")
+        .body(axum::body::Body::from(file_contents))
+        .unwrap())
+}
+
+#[derive(Deserialize)]
+pub struct ParamsWithPath {
+    path: String,
 }
 
 async fn get_file_info(
-    Query(params): Query<HashMap<String, String>>,
+    Query(params): Query<ParamsWithPath>,
     State(state): State<AppState>,
-) -> Result<Json<FileInfo>, (StatusCode, String)> {
-    let file_path = params.get("path").ok_or((
-        StatusCode::BAD_REQUEST,
-        "Missing path parameter".to_string(),
-    ))?;
-
-    match validate_file_path(&state.target_dir, file_path) {
-        Ok(full_path) => {
-            match (
-                get_file_modification_time(&full_path),
-                get_file_size(&full_path),
-            ) {
-                (Ok(modified_time), Ok(size)) => {
-                    let file_info = FileInfo {
-                        modified_time,
-                        size,
-                    };
-                    Ok(Json(file_info))
-                }
-                (Err(e), _) | (_, Err(e)) => {
-                    warn!("Failed to get file info: {}", e);
-                    Err((
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Error getting file info: {e}"),
-                    ))
-                }
-            }
-        }
-        Err(err) => {
-            warn!("File validation error: {}", err);
-            Err((StatusCode::BAD_REQUEST, format!("Error: {err}")))
-        }
-    }
+) -> Result<Json<FileInfo>, WebError> {
+    let full_path = validate_file_path(&state.target_dir, &params.path)?;
+    let modified_time = get_file_modification_time(&full_path).await?;
+    let size = get_file_size(&full_path).await?;
+    Ok(Json(FileInfo {
+        modified_time,
+        size,
+    }))
 }
 
 async fn get_file_content(
     Query(params): Query<HashMap<String, String>>,
     State(state): State<AppState>,
-) -> Result<Json<FileContent>, (StatusCode, String)> {
-    let file_path = params.get("path").ok_or((
-        StatusCode::BAD_REQUEST,
-        "Missing path parameter".to_string(),
-    ))?;
+) -> Result<Json<FileContent>, WebError> {
+    let file_path = params
+        .get("path")
+        .ok_or(WebError::BadRequest("Missing path parameter".to_string()))?;
 
     // Only allow markdown files for this endpoint
     if !is_markdown_file(file_path) {
-        return Err((
-            StatusCode::BAD_REQUEST,
+        return Err(WebError::BadRequest(
             "Only markdown files are supported".to_string(),
         ));
     }
 
-    match validate_file_path(&state.target_dir, file_path) {
-        Ok(full_path) => {
-            match (
-                read_file_content(&full_path),
-                get_file_modification_time(&full_path),
-            ) {
-                (Ok(content), Ok(modified_time)) => {
-                    let file_content = FileContent {
-                        content,
-                        modified_time,
-                    };
-                    Ok(Json(file_content))
-                }
-                (Err(e), _) | (_, Err(e)) => {
-                    warn!("Failed to get file content: {}", e);
-                    Err((
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Error getting file content: {e}"),
-                    ))
-                }
-            }
-        }
-        Err(err) => {
-            warn!("File validation error: {}", err);
-            Err((StatusCode::BAD_REQUEST, format!("Error: {err}")))
-        }
-    }
+    let full_path = validate_file_path(&state.target_dir, file_path)?;
+    let file_content = FileContent {
+        content: fs::read_to_string(&full_path).await?,
+        modified_time: get_file_modification_time(&full_path).await?,
+    };
+    Ok(Json(file_content))
 }
 
 async fn delete_file(
     State(state): State<AppState>,
     Form(form): Form<DeleteForm>,
-) -> Result<Html<String>, (StatusCode, String)> {
+) -> Result<StatusPageTemplate, WebError> {
     // Validate CSRF token
-    if !validate_csrf_token(&form.csrf_token, &state.csrf_secret) {
-        return Err((StatusCode::FORBIDDEN, "Invalid CSRF token".to_string()));
-    }
+    validate_csrf_token(&form.csrf_token, &state.csrf_secret)?;
 
     // Validate the file path
-    match validate_file_path(&state.target_dir, &form.path) {
-        Ok(full_path) => match fs::remove_file(&full_path) {
-            Ok(()) => {
-                info!("File deleted successfully: {}", form.path);
-                let parent_path = get_parent_directory_path(&form.path);
-                match generate_status_html(StatusPageContext {
-                    title: "File Deleted - Markdown Wrangler",
-                    heading: "🗑️ File Deleted Successfully!",
-                    heading_class: "success",
-                    file_path: &form.path,
-                    detail_text: "has been deleted.",
-                    show_edit_button: false,
-                    edit_url: "",
-                    back_url: &parent_path,
-                }) {
-                    Ok(html) => Ok(Html(html)),
-                    Err(err) => {
-                        warn!("Template render error: {}", err);
-                        Err((StatusCode::INTERNAL_SERVER_ERROR, err))
-                    }
-                }
-            }
-            Err(err) => {
-                warn!("File deletion error: {}", err);
-                Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Error deleting file: {err}"),
-                ))
-            }
-        },
-        Err(err) => {
-            warn!("File validation error during deletion: {}", err);
-            Err((StatusCode::BAD_REQUEST, format!("Error: {err}")))
-        }
-    }
+    let full_path = validate_file_path(&state.target_dir, &form.path)?;
+    tokio::fs::remove_file(&full_path).await?;
+    info!("File deleted successfully: {}", form.path);
+    let back_url = get_parent_directory_path(&form.path);
+    Ok(StatusPageTemplate {
+        title: "File Deleted - Markdown Wrangler".to_string(),
+        heading: "🗑️ File Deleted Successfully!".to_string(),
+        heading_class: "success".to_string(),
+        file_path: form.path,
+        detail_text: "has been deleted.".to_string(),
+        show_edit_button: false,
+        edit_url: "".to_string(),
+        back_url,
+    })
 }
 
 async fn handler_404() -> WebError {
@@ -1098,7 +862,7 @@ mod tests {
         let token = generate_csrf_token(secret);
 
         // Valid token should pass validation
-        assert!(validate_csrf_token(&token, secret));
+        assert!(validate_csrf_token(&token, secret).is_ok());
     }
 
     #[test]
@@ -1108,7 +872,7 @@ mod tests {
         let token = generate_csrf_token(secret);
 
         // Token with wrong secret should fail validation
-        assert!(!validate_csrf_token(&token, wrong_secret));
+        assert!(validate_csrf_token(&token, wrong_secret).is_err());
     }
 
     #[test]
@@ -1116,11 +880,11 @@ mod tests {
         let secret = "test_secret";
 
         // Various malformed tokens should fail validation
-        assert!(!validate_csrf_token("", secret));
-        assert!(!validate_csrf_token("invalid", secret));
-        assert!(!validate_csrf_token("only:two", secret));
-        assert!(!validate_csrf_token("too:many:parts:here", secret));
-        assert!(!validate_csrf_token(":::", secret));
+        assert!(validate_csrf_token("", secret).is_err());
+        assert!(validate_csrf_token("invalid", secret).is_err());
+        assert!(validate_csrf_token("only:two", secret).is_err());
+        assert!(validate_csrf_token("too:many:parts:here", secret).is_err());
+        assert!(validate_csrf_token(":::", secret).is_err());
     }
 
     #[test]
@@ -1142,7 +906,7 @@ mod tests {
         let expired_token = format!("{payload}:{signature}");
 
         // Expired token should fail validation
-        assert!(!validate_csrf_token(&expired_token, secret));
+        assert!(validate_csrf_token(&expired_token, secret).is_err());
     }
 
     #[test]
@@ -1151,7 +915,7 @@ mod tests {
 
         // Token with invalid timestamp should fail validation
         let invalid_token = "invalid_timestamp:12345:signature";
-        assert!(!validate_csrf_token(invalid_token, secret));
+        assert!(validate_csrf_token(invalid_token, secret).is_err());
     }
 
     #[tokio::test]
@@ -1201,7 +965,11 @@ mod tests {
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let body_text = String::from_utf8(body.to_vec()).unwrap();
-        assert!(body_text.contains("Invalid CSRF token"));
+        assert!(
+            body_text
+                .to_ascii_lowercase()
+                .contains("invalid csrf token")
+        );
 
         // File should remain unchanged
         let content = std::fs::read_to_string(&test_file).unwrap();
@@ -1233,7 +1001,11 @@ mod tests {
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let body_text = String::from_utf8(body.to_vec()).unwrap();
-        assert!(body_text.contains("Invalid CSRF token"));
+        assert!(
+            body_text
+                .to_ascii_lowercase()
+                .contains("invalid csrf token")
+        );
 
         // File should remain unchanged
         let content = std::fs::read_to_string(&test_file).unwrap();
@@ -1351,7 +1123,11 @@ mod tests {
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let body_text = String::from_utf8(body.to_vec()).unwrap();
-        assert!(body_text.contains("Invalid CSRF token"));
+        assert!(
+            body_text
+                .to_ascii_lowercase()
+                .contains("invalid csrf token")
+        );
 
         // File should still exist
         assert!(test_file.exists());
@@ -1382,7 +1158,11 @@ mod tests {
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let body_text = String::from_utf8(body.to_vec()).unwrap();
-        assert!(body_text.contains("Invalid CSRF token"));
+        assert!(
+            body_text
+                .to_ascii_lowercase()
+                .contains("invalid csrf token")
+        );
 
         // File should still exist
         assert!(test_file.exists());
@@ -1475,9 +1255,9 @@ mod tests {
         assert_ne!(token1, token3);
 
         // But all should validate with the same secret
-        assert!(validate_csrf_token(&token1, secret));
-        assert!(validate_csrf_token(&token2, secret));
-        assert!(validate_csrf_token(&token3, secret));
+        assert!(validate_csrf_token(&token1, secret).is_ok());
+        assert!(validate_csrf_token(&token2, secret).is_ok());
+        assert!(validate_csrf_token(&token3, secret).is_ok());
     }
 
     #[test]
