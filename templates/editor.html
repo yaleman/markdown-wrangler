@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Markdown Wrangler - Edit {{ file_path }}</title>
+        <link rel="stylesheet" href="/static/styles.css">
+        <link rel="stylesheet" href="/static/vendor/prism.css">
+    </head>
+    <body>
+        <h3>
+            📝 Edit Markdown File
+            {% if is_draft %}<span class="draft-flag" title="Frontmatter has draft set to true">🚩 Draft</span>{% endif %}
+        </h3>
+        <div class="breadcrumb">
+            📄 {{ file_path }}
+        </div>
+
+        <form method="post" action="/save">
+            <input type="hidden" name="path" value="{{ file_path }}" />
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+            <div class="buttons">
+                <button type="submit">💾 Save File</button>
+                <a class="button-link cancel" href="{{ cancel_url }}">❌ Cancel</a>
+                <button type="submit" class="delete-btn" form="deleteForm">🗑️ Delete File</button>
+            </div>
+
+            <div class="editor-container">
+                <div class="editor-panel">
+                    <strong>📝 Editor</strong>
+                    <textarea name="content" placeholder="Enter your markdown content here...">{{ content }}</textarea>
+                </div>
+                <div class="editor-panel">
+                    <strong>👁️ Preview</strong>
+                    <div class="preview" id="preview">
+                        <p><em>Preview will appear here as you type...</em></p>
+                    </div>
+                </div>
+            </div>
+        </form>
+
+        <form id="deleteForm" class="hidden-form" method="post" action="/delete">
+            <input type="hidden" name="path" value="{{ file_path }}" />
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+        </form>
+
+        <script src="/static/vendor/prism.js"></script>
+        <script src="/static/editor.js"></script>
+        <script src="/static/editor-storage.js"></script>
+        <script src="/static/delete.js"></script>
+    </body>
+</html>

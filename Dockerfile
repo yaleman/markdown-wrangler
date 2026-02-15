@@ -18,6 +18,7 @@ RUN rm -rf src
 
 # Copy source code
 COPY src ./src
+COPY templates ./templates
 
 # Build the actual application
 RUN cargo build --release

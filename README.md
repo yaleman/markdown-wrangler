@@ -6,6 +6,7 @@ A web interface for managing websites stored as folder structures of markdown fi
 
 - Web-based markdown editor with live preview
 - File browser for navigating markdown files
+- New markdown file creation flow from the current directory
 - CSRF protection for secure form submissions
 - Local storage for draft management
 - Support for markdown features:
@@ -59,12 +60,13 @@ Use `just` for common development tasks:
 
 ```bash
 just --list              # Show all available commands
-just lint                # Run Rust linting (clippy)
-just lint-js             # Run JavaScript linting (eslint)  
+just clippy              # Run Rust linting (clippy)
+just lint_js             # Run JavaScript linting (eslint)
 just test                # Run Rust tests
 just check               # Run all quality checks (lint + test)
-just fmt                 # Format JavaScript files
-just docker-build        # Build Docker container
+just fmt                 # Check Rust formatting
+just docker_build        # Build Docker container
+pnpm run lint            # Direct JavaScript linting
 ```
 
 ### Code Quality
@@ -108,7 +110,7 @@ The binary will be available at `target/release/markdown-wrangler`.
 
 Build the Docker container:
 ```bash
-just docker-build
+just docker_build
 # or
 docker build -t ghcr.io/yaleman/markdown-wrangler:latest .
 ```
@@ -173,18 +175,43 @@ The application supports OpenTelemetry tracing. Configure with standard OpenTele
 ```
 ├── src/
 │   ├── main.rs           # Application entry point
+│   ├── lib.rs            # Crate modules
 │   ├── cli.rs            # Command line argument parsing
-│   ├── log_wrangler.rs   # Tracing and OpenTelemetry setup
-│   └── web.rs            # Web server and HTTP routing
+│   ├── logging/          # Tracing and OpenTelemetry setup
+│   │   ├── mod.rs
+│   │   └── consoleexporter.rs
+│   └── web/              # Web server, handlers, and helpers
+│       ├── mod.rs
+│       ├── constants.rs
+│       └── error.rs
 ├── static/
 │   ├── editor.js         # Markdown editor functionality
 │   ├── editor-storage.js # Local storage and draft management
+│   ├── delete.js         # Delete confirmation helper
+│   ├── image-preview.js  # Image preview helper
 │   └── styles.css        # Application styles
+├── templates/            # Askama HTML templates
 ├── .github/workflows/    # CI/CD pipelines
 ├── Dockerfile           # Multi-stage container build
 ├── justfile            # Development commands
 └── README.md           # This file
 ```
+
+### HTTP Routes
+
+- `GET /` - Directory browser
+- `GET /new-file?path=...` - New markdown file form
+- `POST /new-file` - Create markdown file and redirect to editor
+- `GET /edit?path=...` - Markdown editor
+- `POST /save` - Save markdown content (CSRF-protected)
+- `POST /delete` - Delete file (CSRF-protected)
+- `GET /preview?path=...` - Image preview page
+- `GET /image?path=...` - Image bytes endpoint
+- `GET /file-preview?path=...` - Generic file preview page
+- `GET /file?path=...` - Safe-file serving endpoint for iframe previews
+- `GET /file-info?path=...` - JSON metadata
+- `GET /file-content?path=...` - JSON content for markdown files
+- `GET /static/*` - Static assets
 
 ### Key Technologies
 
@@ -201,6 +228,8 @@ The application supports OpenTelemetry tracing. Configure with standard OpenTele
 The application includes several security features:
 
 - **CSRF Protection**: All state-changing endpoints require valid CSRF tokens
+- **CSRF Signing**: Tokens use `timestamp:nonce:signature`, where `signature`
+  is HMAC-SHA256 over `timestamp:nonce`
 - **Token Expiration**: CSRF tokens expire after 1 hour
 - **Secure Headers**: Proper HTTP security headers
 - **Input Validation**: Sanitized file path handling

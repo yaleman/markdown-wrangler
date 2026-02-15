@@ -1,0 +1,10 @@
+interface:
+  display_name: "Playwright Design Validator"
+  short_description: "Validate web UI visuals, UX, and functionality"
+  default_prompt: "Use $playwright-mcp-design-validator to review this page for visual design quality, aesthetic consistency, responsiveness, and functional UX issues."
+
+dependencies:
+  tools:
+    - type: asdfasd
+      value: "playwright"
+      description: "Playwright MCP server for browser automation and screenshots"

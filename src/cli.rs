@@ -21,6 +21,13 @@ pub struct Cli {
 
     #[arg(long, help = "Enable OpenTelemetry logging export")]
     pub enable_otel_logs: bool,
+
+    #[arg(
+        long,
+        help = "Maximum allowed uploaded image size in bytes",
+        default_value_t = 1_048_576usize
+    )]
+    pub max_upload_size_bytes: usize,
 }
 
 impl Cli {
@@ -43,6 +50,118 @@ impl Cli {
             ));
         }
 
+        if self.max_upload_size_bytes == 0 {
+            return Err("Maximum upload size must be greater than 0 bytes".to_string());
+        }
+
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Cli;
+    use clap::Parser;
+    use std::{
+        fs::File,
+        path::{Path, PathBuf},
+    };
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_parse_defaults() {
+        let cli = Cli::parse_from(["markdown-wrangler"]);
+        assert!(!cli.debug);
+        assert!(!cli.enable_otel_logs);
+        assert_eq!(cli.max_upload_size_bytes, 1_048_576);
+        assert_eq!(cli.target_dir, PathBuf::from("."));
+    }
+
+    #[test]
+    fn test_parse_flags_and_target_dir() {
+        let cli = Cli::parse_from([
+            "markdown-wrangler",
+            "--debug",
+            "--enable-otel-logs",
+            "--max-upload-size-bytes",
+            "2048",
+            "content",
+        ]);
+        assert!(cli.debug);
+        assert!(cli.enable_otel_logs);
+        assert_eq!(cli.max_upload_size_bytes, 2048);
+        assert_eq!(cli.target_dir, PathBuf::from("content"));
+    }
+
+    #[test]
+    fn test_validate_success_for_existing_directory() {
+        let temp_dir = TempDir::new().expect("failed to create temporary directory");
+        let cli = Cli {
+            debug: false,
+            target_dir: temp_dir.path().to_path_buf(),
+            enable_otel_logs: false,
+            max_upload_size_bytes: 1_048_576,
+        };
+        assert!(cli.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_fails_for_missing_directory() {
+        let temp_dir = TempDir::new().expect("failed to create temporary directory");
+        let missing = temp_dir.path().join("does-not-exist");
+        let cli = Cli {
+            debug: false,
+            target_dir: missing.clone(),
+            enable_otel_logs: false,
+            max_upload_size_bytes: 1_048_576,
+        };
+
+        let result = cli.validate();
+        assert!(result.is_err());
+
+        let err = result.expect_err("validation should return an error");
+        assert!(err.contains("does not exist"));
+        assert!(err.contains(&display_path(&missing)));
+    }
+
+    #[test]
+    fn test_validate_fails_for_file_path() {
+        let temp_dir = TempDir::new().expect("failed to create temporary directory");
+        let file_path = temp_dir.path().join("file.md");
+        File::create(&file_path).expect("failed to create temporary file");
+
+        let cli = Cli {
+            debug: false,
+            target_dir: file_path.clone(),
+            enable_otel_logs: false,
+            max_upload_size_bytes: 1_048_576,
+        };
+
+        let result = cli.validate();
+        assert!(result.is_err());
+
+        let err = result.expect_err("validation should return an error");
+        assert!(err.contains("is not a directory"));
+        assert!(err.contains(&display_path(&file_path)));
+    }
+
+    #[test]
+    fn test_validate_fails_for_zero_max_upload_size() {
+        let temp_dir = TempDir::new().expect("failed to create temporary directory");
+        let cli = Cli {
+            debug: false,
+            target_dir: temp_dir.path().to_path_buf(),
+            enable_otel_logs: false,
+            max_upload_size_bytes: 0,
+        };
+
+        let result = cli.validate();
+        assert!(result.is_err());
+        let err = result.expect_err("validation should return an error");
+        assert!(err.contains("greater than 0"));
+    }
+
+    fn display_path(path: &Path) -> String {
+        path.display().to_string()
     }
 }

@@ -1,5 +1,8 @@
 //! An OpenTelemetry exporter that writes Logs to stdout on export, based on `opentelemetry-stdout` crate.
 //!
+
+use super::*;
+use chrono::{DateTime, Utc};
 use opentelemetry::logs::AnyValue;
 use opentelemetry_sdk::error::{OTelSdkError, OTelSdkResult};
 use opentelemetry_sdk::logs::LogBatch;
@@ -7,11 +10,9 @@ use opentelemetry_semantic_conventions::SCHEMA_URL;
 use opentelemetry_semantic_conventions::attribute::OTEL_STATUS_CODE;
 use opentelemetry_semantic_conventions::resource::{OTEL_SCOPE_NAME, OTEL_SCOPE_VERSION};
 use serde_json::{Value, json};
-
-use super::*;
-use chrono::{DateTime, Utc};
 use std::collections::HashMap;
-use std::sync::atomic::{self, Ordering};
+use std::sync::atomic::{self};
+
 use std::{fmt, time};
 
 pub struct OurLogExporter {
@@ -45,19 +46,21 @@ impl opentelemetry_sdk::logs::LogExporter for OurLogExporter {
         if self.is_shutdown.load(atomic::Ordering::SeqCst) {
             Err(OTelSdkError::AlreadyShutdown)
         } else {
-            if self
-                .resource_emitted
-                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-                .is_ok()
-            {
-                //     if let Some(schema_url) = self.resource.schema_url() {
-                //     println!("\t Resource SchemaUrl: {schema_url:?}");
-                // }
-                // self.resource.iter().for_each(|(k, v)| {
-                //     println!("\t ->  {k}={v:?}");
-                // });
-            }
-            print_logs(batch);
+            // TODO :work out what I was doing here
+            // use std::sync::atomic::Ordering;
+            // if self
+            //     .resource_emitted
+            //     .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            //     .is_ok()
+            // {
+            //     if let Some(schema_url) = self.resource.schema_url() {
+            //     println!("\t Resource SchemaUrl: {schema_url:?}");
+            // }
+            // self.resource.iter().for_each(|(k, v)| {
+            //     println!("\t ->  {k}={v:?}");
+            // });
+            // }
+            print_logs(&batch);
 
             Ok(())
         }
@@ -73,7 +76,7 @@ impl opentelemetry_sdk::logs::LogExporter for OurLogExporter {
     }
 }
 
-fn print_logs(batch: LogBatch<'_>) {
+fn print_logs(batch: &LogBatch<'_>) {
     for (i, log) in batch.iter().enumerate() {
         let (record, library) = log;
 
@@ -180,7 +183,10 @@ fn print_logs(batch: LogBatch<'_>) {
                             .collect(),
                     ),
                 ),
-                _ => todo!(),
+                _ => event.insert(
+                    "msg",
+                    Value::String(format!("Unsupported body type: {:?}", body)),
+                ),
             };
         }
 

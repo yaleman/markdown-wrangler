@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ title }}</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="center">
+    <h1 class="{{ heading_class }}">{{ heading }}</h1>
+    <p>The file <strong>{{ file_path }}</strong> {{ detail_text }}</p>
+    <div class="buttons">
+        {% if show_edit_button %}
+        <a class="button-link save-buttons" href="{{ edit_url }}">📝 Continue Editing</a>
+        {% endif %}
+        <a class="button-link save-buttons" href="{{ back_url }}">📁 Back to Files</a>
+    </div>
+</body>
+</html>
