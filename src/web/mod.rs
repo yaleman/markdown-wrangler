@@ -11,7 +11,7 @@ use axum::{
     Router,
     extract::{Form, Query, State},
     http::HeaderValue,
-    response::{Json, Response},
+    response::{Json, Redirect, Response},
     routing::{get, post},
 };
 use constants::*;
@@ -70,6 +70,7 @@ struct DirectoryTemplate {
     breadcrumbs: Vec<Breadcrumb>,
     has_parent: bool,
     parent_url: String,
+    new_file_url: String,
     entries: Vec<DirectoryEntryView>,
 }
 
@@ -116,6 +117,15 @@ struct StatusPageTemplate {
     back_url: String,
 }
 
+#[derive(Template, WebTemplate)]
+#[template(path = "new_file.html")]
+struct NewFileTemplate {
+    current_path_display: String,
+    path_value: String,
+    back_url: String,
+    csrf_token: String,
+}
+
 #[derive(Deserialize)]
 struct EditForm {
     path: String,
@@ -126,6 +136,13 @@ struct EditForm {
 #[derive(Deserialize)]
 struct DeleteForm {
     path: String,
+    csrf_token: String,
+}
+
+#[derive(Deserialize)]
+struct NewFileForm {
+    path: String,
+    filename: String,
     csrf_token: String,
 }
 
@@ -309,6 +326,68 @@ fn validate_file_path(base_dir: &Path, relative_path: &str) -> Result<PathBuf, W
     }
 
     Ok(canonical_full)
+}
+
+fn validate_directory_path(base_dir: &Path, relative_path: &str) -> Result<PathBuf, WebError> {
+    let full_path = if relative_path.is_empty() {
+        base_dir.to_path_buf()
+    } else {
+        base_dir.join(relative_path)
+    };
+
+    let canonical_base = base_dir
+        .canonicalize()
+        .map_err(|e| WebError::BadRequest(format!("Base directory error: {e}")))?;
+    let canonical_full = full_path
+        .canonicalize()
+        .map_err(|_| WebError::BadRequest("Path does not exist".to_string()))?;
+
+    if !canonical_full.starts_with(&canonical_base) {
+        return Err(WebError::BadRequest(
+            "Path outside base directory".to_string(),
+        ));
+    }
+
+    if !canonical_full.is_dir() {
+        return Err(WebError::BadRequest("Path is not a directory".to_string()));
+    }
+
+    Ok(canonical_full)
+}
+
+fn is_git_compatible_ascii_filename_stem(stem: &str) -> bool {
+    !stem.is_empty()
+        && stem.is_ascii()
+        && !stem.starts_with('.')
+        && !stem.ends_with('.')
+        && !stem.contains("..")
+        && stem
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+}
+
+fn normalize_markdown_filename(filename: &str) -> Result<String, WebError> {
+    let trimmed = filename.trim();
+    if trimmed.is_empty() {
+        return Err(WebError::BadRequest("Filename is required".to_string()));
+    }
+
+    let mut stem = trimmed.to_string();
+    let lower = stem.to_ascii_lowercase();
+    if lower.ends_with(".markdown") {
+        stem.truncate(stem.len().saturating_sub(".markdown".len()));
+    } else if lower.ends_with(".md") {
+        stem.truncate(stem.len().saturating_sub(".md".len()));
+    }
+    let stem = stem.trim();
+
+    if !is_git_compatible_ascii_filename_stem(stem) {
+        return Err(WebError::BadRequest(
+            "Filename must use only ASCII letters, numbers, '-', '_', or '.'".to_string(),
+        ));
+    }
+
+    Ok(format!("{stem}.md"))
 }
 
 fn is_markdown_file(path: &str) -> bool {
@@ -495,8 +574,63 @@ async fn index(
         breadcrumbs: build_breadcrumbs(path),
         has_parent: !path.is_empty(),
         parent_url,
+        new_file_url: if path.is_empty() {
+            "/new-file".to_string()
+        } else {
+            format!("/new-file?path={}", urlencoding::encode(path))
+        },
         entries: build_directory_entry_views(&entries),
     })
+}
+
+async fn new_file_form(
+    Query(params): Query<HashMap<String, String>>,
+    State(state): State<AppState>,
+) -> Result<NewFileTemplate, WebError> {
+    let path = params.get("path").map(|s| s.as_str()).unwrap_or("");
+    validate_directory_path(&state.target_dir, path)?;
+
+    Ok(NewFileTemplate {
+        current_path_display: if path.is_empty() {
+            "/".to_string()
+        } else {
+            format!("/{}", path)
+        },
+        path_value: path.to_string(),
+        back_url: if path.is_empty() {
+            "/".to_string()
+        } else {
+            format!("/?path={}", urlencoding::encode(path))
+        },
+        csrf_token: generate_csrf_token(&state.csrf_secret),
+    })
+}
+
+async fn create_new_file(
+    State(state): State<AppState>,
+    Form(form): Form<NewFileForm>,
+) -> Result<Redirect, WebError> {
+    validate_csrf_token(&form.csrf_token, &state.csrf_secret)?;
+
+    let canonical_dir = validate_directory_path(&state.target_dir, &form.path)?;
+    let markdown_filename = normalize_markdown_filename(&form.filename)?;
+    let full_path = canonical_dir.join(&markdown_filename);
+
+    if fs::try_exists(&full_path).await? {
+        return Err(WebError::BadRequest("File already exists".to_string()));
+    }
+
+    fs::write(&full_path, "").await?;
+
+    let new_relative_path = if form.path.is_empty() {
+        markdown_filename
+    } else {
+        format!("{}/{}", form.path, markdown_filename)
+    };
+    Ok(Redirect::to(&format!(
+        "/edit?path={}",
+        urlencoding::encode(&new_relative_path)
+    )))
 }
 
 async fn edit_file(
@@ -817,6 +951,7 @@ async fn handler_404() -> WebError {
 fn create_router(state: AppState) -> Router {
     Router::new()
         .route("/", get(index))
+        .route("/new-file", get(new_file_form).post(create_new_file))
         .route("/edit", get(edit_file))
         .route("/save", post(save_file))
         .route("/delete", post(delete_file))
@@ -1332,6 +1467,138 @@ mod tests {
         // Should have at least 2 CSRF token fields (save form and delete form)
         let csrf_count = html.matches(r#"name="csrf_token""#).count();
         assert_eq!(csrf_count, 2);
+    }
+
+    #[tokio::test]
+    async fn test_index_page_contains_new_file_link() {
+        let (app, _temp_dir, _) = create_test_app().await;
+
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/")
+            .body(Body::empty())
+            .expect("Failed to build index request");
+
+        let response = app.oneshot(request).await.expect("Failed to send request");
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("Failed to collect response body")
+            .to_bytes();
+        let html =
+            String::from_utf8(body.to_vec()).expect("Failed to parse response body as UTF-8");
+        assert!(html.contains(r#"href="/new-file""#));
+    }
+
+    #[tokio::test]
+    async fn test_new_file_form_contains_path_and_csrf_token() {
+        let (app, temp_dir, _) = create_test_app().await;
+
+        let nested_dir = temp_dir.path().join("posts");
+        fs::create_dir(&nested_dir)
+            .await
+            .expect("Failed to create nested directory");
+
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/new-file?path=posts")
+            .body(Body::empty())
+            .expect("Failed to build new-file request");
+
+        let response = app.oneshot(request).await.expect("Failed to send request");
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("Failed to collect response body")
+            .to_bytes();
+        let html =
+            String::from_utf8(body.to_vec()).expect("Failed to parse response body as UTF-8");
+        assert!(html.contains(r#"name="csrf_token""#));
+        assert!(html.contains(r#"name="path" value="posts""#));
+    }
+
+    #[tokio::test]
+    async fn test_create_new_file_redirects_to_editor() {
+        let (app, temp_dir, csrf_secret) = create_test_app().await;
+        let csrf_token = generate_csrf_token(&csrf_secret);
+
+        let body = format!(
+            "path=&filename=new-post&csrf_token={}",
+            urlencoding::encode(&csrf_token)
+        );
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/new-file")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .expect("Failed to build create-new-file request");
+
+        let response = app.oneshot(request).await.expect("Failed to send request");
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            response
+                .headers()
+                .get("location")
+                .and_then(|h| h.to_str().ok()),
+            Some("/edit?path=new-post.md")
+        );
+
+        let new_file = temp_dir.path().join("new-post.md");
+        assert!(new_file.exists());
+        let content = fs::read_to_string(&new_file)
+            .await
+            .expect("Failed to read created markdown file");
+        assert!(content.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_create_new_file_rejects_existing_file() {
+        let (app, temp_dir, csrf_secret) = create_test_app().await;
+        let existing_file = temp_dir.path().join("existing.md");
+        fs::write(&existing_file, "# Existing")
+            .await
+            .expect("Failed to write existing markdown file");
+        let csrf_token = generate_csrf_token(&csrf_secret);
+
+        let body = format!(
+            "path=&filename=existing&csrf_token={}",
+            urlencoding::encode(&csrf_token)
+        );
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/new-file")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .expect("Failed to build create-new-file request for existing file");
+
+        let response = app.oneshot(request).await.expect("Failed to send request");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_create_new_file_rejects_invalid_filename() {
+        let (app, _temp_dir, csrf_secret) = create_test_app().await;
+        let csrf_token = generate_csrf_token(&csrf_secret);
+
+        let body = format!(
+            "path=&filename=bad%2Fname&csrf_token={}",
+            urlencoding::encode(&csrf_token)
+        );
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/new-file")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .expect("Failed to build create-new-file request with invalid filename");
+
+        let response = app.oneshot(request).await.expect("Failed to send request");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

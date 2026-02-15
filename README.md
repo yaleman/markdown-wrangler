@@ -6,6 +6,7 @@ A web interface for managing websites stored as folder structures of markdown fi
 
 - Web-based markdown editor with live preview
 - File browser for navigating markdown files
+- New markdown file creation flow from the current directory
 - CSRF protection for secure form submissions
 - Local storage for draft management
 - Support for markdown features:
@@ -199,6 +200,8 @@ The application supports OpenTelemetry tracing. Configure with standard OpenTele
 ### HTTP Routes
 
 - `GET /` - Directory browser
+- `GET /new-file?path=...` - New markdown file form
+- `POST /new-file` - Create markdown file and redirect to editor
 - `GET /edit?path=...` - Markdown editor
 - `POST /save` - Save markdown content (CSRF-protected)
 - `POST /delete` - Delete file (CSRF-protected)

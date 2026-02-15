@@ -56,6 +56,8 @@ just docker_build          # Build container image
 ### Routing (`src/web/mod.rs`)
 
 - `GET /` - Directory browser
+- `GET /new-file?path=...` - New markdown file form
+- `POST /new-file` - Create markdown file and redirect to editor (CSRF-protected)
 - `GET /edit?path=...` - Markdown editor
 - `POST /save` - Save markdown content (CSRF-protected)
 - `POST /delete` - Delete file (CSRF-protected)
@@ -90,7 +92,8 @@ just docker_build          # Build container image
 
 **Route handlers:**
 
-- `index()`, `edit_file()`, `save_file()`, `delete_file()`
+- `index()`, `new_file_form()`, `create_new_file()`
+- `edit_file()`, `save_file()`, `delete_file()`
 - `preview_image()`, `serve_image()`
 - `preview_file()`, `serve_file()`
 - `get_file_info()`, `get_file_content()`

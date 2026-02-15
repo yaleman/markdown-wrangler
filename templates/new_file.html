@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Markdown Wrangler - New Markdown File</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="directory-page">
+    <h1>➕ New Markdown File</h1>
+    <div class="breadcrumb">
+        <a href="{{ back_url }}">← Back to file browser</a> | 📍 Path: <strong>{{ current_path_display }}</strong>
+    </div>
+
+    <form method="post" action="/new-file">
+        <input type="hidden" name="path" value="{{ path_value }}" />
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+
+        <div class="entry">
+            <label for="filename"><strong>Filename</strong> (no extension required)</label>
+        </div>
+        <div class="entry">
+            <input id="filename" name="filename" type="text" required placeholder="example-post" />
+            <span class="file">.md will be added automatically</span>
+        </div>
+        <div class="entry">
+            <small>Allowed characters: ASCII letters, numbers, '-', '_', '.'</small>
+        </div>
+
+        <div class="buttons">
+            <button type="submit">📝 Create and Edit</button>
+            <a class="button-link cancel" href="{{ back_url }}">❌ Cancel</a>
+        </div>
+    </form>
+</body>
+</html>

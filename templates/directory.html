@@ -18,6 +18,10 @@
         {% endif %}
     </div>
 
+    <div class="buttons">
+        <a class="button-link" href="{{ new_file_url }}">➕ New Markdown File</a>
+    </div>
+
     {% if has_parent %}
     <div class="entry"><a href="{{ parent_url }}">📁 <span class="directory">..</span></a></div>
     {% endif %}
