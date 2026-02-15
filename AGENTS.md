@@ -116,6 +116,7 @@ just docker_build          # Build container image
 - HTML is rendered with Askama templates in `templates/`.
 - Template structs are defined in `src/web/mod.rs` (for directory, editor,
   image preview, file preview, and status pages).
+- Template breadcrumbs show current path context; navigation is handled by action buttons (for example `Cancel` / `Back to Files` where applicable).
 
 ### Static Assets (`/static`)
 
@@ -123,6 +124,7 @@ just docker_build          # Build container image
 - `editor-storage.js` - Local draft autosave and disk-conflict checks
 - `delete.js` - Delete confirmation helper
 - `styles.css` - Styling
+- `vendor/prism.js` + `vendor/prism.css` - Syntax highlighting for fenced code blocks in editor preview
 
 ## Testing Strategy
 
@@ -156,11 +158,14 @@ just docker_build          # Build container image
 
 - Open in editor with live preview, save, and delete flows.
 - Editor shows a draft badge when YAML/JSON frontmatter contains `draft: true`.
+- Editor preview supports fenced code blocks (triple backticks) and syntax highlighting.
+- Editor `Cancel` action returns to the file's parent directory listing.
 - Frontmatter parser extracts `draft`, `title`, `date`, `tags`, and `categories`; remaining keys are kept as extra metadata.
 
 **Images (`jpg`, `jpeg`, `png`, `gif`, `webp`, `svg`, `bmp`, `tiff`, `tif`):**
 
 - Open in image preview and served with image MIME types.
+- Image preview uses a compact header with top action buttons and no breadcrumb back link.
 - Upload flow validates image bytes/content before writing to disk.
 - Upload size limit is configurable via CLI (`--max-upload-size-bytes`, default `1048576` bytes / 1 MB).
 
@@ -168,6 +173,8 @@ just docker_build          # Build container image
 `csv`, `log`, `yml`, `yaml`, `toml`, `ini`, `conf`, `cfg`):**
 
 - Open in generic file preview; `/file` serves bytes with type + safety headers.
+- File preview shows the file path header without back-navigation links.
+- File preview actions (delete) appear above the preview pane.
 
 **Executable extensions (`exe`, `bat`, `cmd`, `com`, `scr`, `msi`, `sh`, `ps1`,
 `vbs`, `app`, `dmg`, `pkg`, `deb`, `rpm`):**

@@ -4,10 +4,13 @@
     <title>Markdown Wrangler - Image Preview: {{ file_path }}</title>
     <link rel="stylesheet" href="/static/styles.css">
 </head>
-<body>
-    <h1>🖼️ Image Preview</h1>
-    <div class="breadcrumb">
-        <a href="/">← Back to file browser</a> | 🖼️ {{ file_path }}
+<body class="preview-page">
+    <div class="preview-page-header">
+        <h3 class="preview-page-title">🖼️ Image Preview</h3>
+        <div class="buttons inline-actions">
+            <a class="button-link" href="{{ parent_path }}">📁 Back to Files</a>
+            <button type="submit" class="delete-btn" form="deleteForm">🗑️ Delete File</button>
+        </div>
     </div>
 
     <div class="image-preview-container">
@@ -20,11 +23,6 @@
             <p><strong>Size:</strong> {{ file_size }}</p>
             <p><strong>Dimensions:</strong> <span id="imageDimensions">Loading...</span></p>
         </div>
-    </div>
-
-    <div class="buttons">
-        <a class="button-link" href="{{ parent_path }}">📁 Back to Files</a>
-        <button type="submit" class="delete-btn" form="deleteForm">🗑️ Delete File</button>
     </div>
 
     <form id="deleteForm" class="hidden-form" method="post" action="/delete">

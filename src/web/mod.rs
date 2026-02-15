@@ -83,6 +83,7 @@ struct EditorTemplate {
     content: String,
     csrf_token: String,
     is_draft: bool,
+    cancel_url: String,
 }
 
 #[derive(Template, WebTemplate)]
@@ -102,7 +103,6 @@ struct FilePreviewTemplate {
     encoded_path: String,
     file_size: String,
     file_type: String,
-    parent_path: String,
     csrf_token: String,
     can_iframe: bool,
 }
@@ -1057,11 +1057,13 @@ async fn edit_file(
     let content = fs::read_to_string(&full_path).await?;
     let is_draft = has_draft_frontmatter(&content);
     let csrf_token = generate_csrf_token(&state.csrf_secret);
+    let cancel_url = get_parent_directory_path(file_path);
     Ok(EditorTemplate {
         file_path: file_path.to_string(),
         content,
         csrf_token,
         is_draft,
+        cancel_url,
     })
 }
 
@@ -1217,7 +1219,6 @@ async fn preview_file(
                 encoded_path: urlencoding::encode(file_path).into_owned(),
                 file_size: file_size.to_string(),
                 file_type: get_file_type_description(file_path).to_string(),
-                parent_path: get_parent_directory_path(file_path),
                 csrf_token: csrf_token.to_string(),
                 can_iframe: is_safe_for_iframe(file_path),
             })
@@ -1230,7 +1231,6 @@ async fn preview_file(
                 encoded_path: urlencoding::encode(file_path).into_owned(),
                 file_size: "Unknown".to_string(),
                 file_type: get_file_type_description(file_path).to_string(),
-                parent_path: get_parent_directory_path(file_path),
                 csrf_token: csrf_token.to_string(),
                 can_iframe: is_safe_for_iframe(file_path),
             })
@@ -2069,6 +2069,47 @@ draft: true
         // Should have at least 2 CSRF token fields (save form and delete form)
         let csrf_count = html.matches(r#"name="csrf_token""#).count();
         assert_eq!(csrf_count, 2);
+
+        // Root-level files should still cancel back to root.
+        assert!(html.contains(r#"class="button-link cancel" href="/""#));
+        assert!(!html.contains("← Back to file browser"));
+    }
+
+    #[tokio::test]
+    async fn test_edit_page_cancel_link_points_to_parent_directory() {
+        let (app, temp_dir, _) = create_test_app().await;
+        let nested_dir = temp_dir.path().join("content/post/2026");
+        fs::create_dir_all(&nested_dir)
+            .await
+            .expect("Failed to create nested test directory");
+        let test_file = nested_dir.join("nested.md");
+        fs::write(&test_file, "# Nested")
+            .await
+            .expect("Failed to write nested test file");
+
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/edit?path=content/post/2026/nested.md")
+            .body(Body::empty())
+            .expect("Failed to build nested edit request");
+
+        let response = app
+            .oneshot(request)
+            .await
+            .expect("Failed to send nested edit request");
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("Failed to collect nested edit response body")
+            .to_bytes();
+        let html = String::from_utf8(body.to_vec())
+            .expect("Failed to parse nested edit response body as UTF-8");
+
+        assert!(html.contains(r#"class="button-link cancel" href="/?path=content%2Fpost%2F2026""#));
+        assert!(!html.contains("← Back to file browser"));
     }
 
     #[tokio::test]
@@ -2533,6 +2574,17 @@ draft: true
         let html =
             String::from_utf8(body.to_vec()).expect("Failed to parse response body as UTF-8");
         assert!(html.contains(r#"name="csrf_token""#));
+        assert!(!html.contains("← Back to file browser"));
+        let buttons_pos = html
+            .find(r#"<div class="buttons inline-actions">"#)
+            .expect("expected image preview action buttons");
+        let preview_pos = html
+            .find(r#"<div class="image-preview-container">"#)
+            .expect("expected image preview container");
+        assert!(
+            buttons_pos < preview_pos,
+            "image preview actions should render above preview container"
+        );
     }
 
     #[tokio::test]
@@ -2874,6 +2926,18 @@ draft: true
         let html =
             String::from_utf8(body.to_vec()).expect("Failed to parse file preview HTML as UTF-8");
         assert!(html.contains("<iframe "));
+        assert!(!html.contains("📁 Back to Files"));
+        assert!(!html.contains("← Back to file browser"));
+        let buttons_pos = html
+            .find(r#"<div class="buttons inline-actions">"#)
+            .expect("expected buttons block in file preview");
+        let preview_pos = html
+            .find(r#"<div class="file-preview-container">"#)
+            .expect("expected preview container in file preview");
+        assert!(
+            buttons_pos < preview_pos,
+            "buttons should render above preview container"
+        );
     }
 
     #[tokio::test]
