@@ -16,7 +16,7 @@ askama_web = { version = "0.15.1", features = ["axum-0.8"] }
 axum = { version = "0.8.8", features = ["multipart"] }
 axum-tracing-opentelemetry = "0.33.0"
 chrono = { version = "0.4.43", default-features = false }
-clap = { version = "4.5.58", features = ["derive"] }
+clap = { version = "4.5.60", features = ["derive"] }
 hex = "0.4.3"
 hmac = "0.12.1"
 html-escape = "0.2.13"
