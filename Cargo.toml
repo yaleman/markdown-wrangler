@@ -20,7 +20,7 @@ clap = { version = "4.5.60", features = ["derive"] }
 hex = "0.4.3"
 hmac = "0.12.1"
 html-escape = "0.2.13"
-image = "0.25.9"
+image = "0.25.10"
 opentelemetry = "0.31.0"
 opentelemetry-appender-tracing = "0.31.1"
 opentelemetry-otlp = { version = "0.31.0", features = ["grpc-tonic", "tonic"] }
