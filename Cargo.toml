@@ -37,7 +37,7 @@ tokio = { version = "1.50.0", features = ["full", "tracing"] }
 tower-http = { version = "0.6.8", features = ["fs"] }
 tracing = "0.1.44"
 tracing-opentelemetry = { version = "0.32.1", features = ["metrics"] }
-tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 urlencoding = "2.1.3"
 
 [dev-dependencies]
