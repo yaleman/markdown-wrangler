@@ -23,7 +23,7 @@ html-escape = "0.2.13"
 image = "0.25.10"
 opentelemetry = "0.31.0"
 opentelemetry-appender-tracing = "0.31.1"
-opentelemetry-otlp = { version = "0.31.0", features = ["grpc-tonic", "tonic"] }
+opentelemetry-otlp = { version = "0.31.1", features = ["grpc-tonic", "tonic"] }
 opentelemetry-semantic-conventions = "0.31.0"
 opentelemetry-stdout = "0.31.0"
 opentelemetry_sdk = { version = "0.31.0", features = ["rt-tokio"] }
