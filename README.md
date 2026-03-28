@@ -61,12 +61,12 @@ Use `just` for common development tasks:
 ```bash
 just --list              # Show all available commands
 just clippy              # Run Rust linting (clippy)
-just lint_js             # Run JavaScript linting (eslint)
+just lint_js             # Run JavaScript checks (Biome)
 just test                # Run Rust tests
 just check               # Run all quality checks (lint + test)
 just fmt                 # Check Rust formatting
 just docker_build        # Build Docker container
-pnpm run lint            # Direct JavaScript linting
+pnpm run lint            # Direct JavaScript linting with Biome
 ```
 
 ### Code Quality
@@ -78,7 +78,7 @@ just check
 
 This runs:
 - Rust linting with clippy (treating warnings as errors)
-- JavaScript linting with eslint
+- JavaScript linting and formatting checks with Biome
 - All Rust tests
 
 ### Testing

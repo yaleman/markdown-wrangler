@@ -24,5 +24,5 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v6
 
-      - name: Check JavaScript formatting
+      - name: Check JavaScript with Biome
         run: pnpm check

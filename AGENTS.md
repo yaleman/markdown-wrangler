@@ -35,8 +35,8 @@ cargo test test_name       # Run a single test
 just clippy                # Rust linting (warnings denied by policy)
 just test                  # Rust tests
 just fmt                   # Rust formatting check
-just lint_js               # JavaScript linting through pnpm/eslint
-pnpm run lint              # Direct eslint invocation for static/*.js
+just lint_js               # JavaScript checks through pnpm/Biome
+pnpm run lint              # Direct Biome lint invocation for static/*.js
 ```
 
 ### Docker
@@ -143,7 +143,7 @@ just docker_build          # Build container image
 - **Mandatory:** Commit completed work to git.
 - Use cargo commands for dependency changes (do not hand-edit `Cargo.toml`).
 - Keep `AGENTS.md` updated when architecture/behavior changes.
-- JavaScript must pass eslint checks.
+- JavaScript must pass Biome checks.
 - Prefer static assets over inline JS/CSS.
 - In production code, do not use `unwrap()` or `expect()`.
 - In tests, `expect()` is allowed when the message adds actionable context.
