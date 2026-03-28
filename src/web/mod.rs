@@ -15,7 +15,7 @@ use axum::{
     routing::{get, post},
 };
 use constants::*;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 
 use rand::RngExt;
 use serde::{Deserialize, Serialize};
