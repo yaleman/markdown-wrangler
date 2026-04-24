@@ -13,7 +13,7 @@ categories = ["web-programming", "text-processing"]
 [dependencies]
 askama = { version = "0.15.6", features = ["serde_json"] }
 askama_web = { version = "0.15.2", features = ["axum-0.8"] }
-axum = { version = "0.8.8", features = ["multipart"] }
+axum = { version = "0.8.9", features = ["multipart"] }
 axum-tracing-opentelemetry = "0.33.1"
 chrono = { version = "0.4.44", default-features = false }
 clap = { version = "4.6.0", features = ["derive"] }
